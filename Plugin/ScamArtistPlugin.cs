@@ -468,6 +468,7 @@ namespace ScamArtistMod
 		private static CursorLockMode prevLock;
 		private static bool prevVisible;
 		private static UnityEngine.EventSystems.EventSystem pausedEvents;
+		private static GameObject holder;
 
 		// While the ledger is open it owns the mouse: the cursor is free, the game's controls and its own
 		// menus underneath don't react, and Esc closes the ledger.
@@ -484,11 +485,19 @@ namespace ScamArtistMod
 					if (pausedEvents != null && pausedEvents.enabled) pausedEvents.enabled = false; else pausedEvents = null;
 				}
 				catch (Exception) { pausedEvents = null; }
+				// The game's own way to freeze camera, movement and hotkeys (what its menus use).
+				try
+				{
+					if (holder == null) { holder = new GameObject("ScamArtist_Ledger"); UnityEngine.Object.DontDestroyOnLoad(holder); }
+					if (GameController.instance != null) GameController.instance.ControlsDisabled(holder, true, true);
+				}
+				catch (Exception e) { SkillHost.LogWarning("Ledger controls: " + e.Message); }
 			}
 			else
 			{
 				if (Save != null) Save.RemoveSeenClosed();   // read and closed scams disappear
 				try { if (pausedEvents != null) pausedEvents.enabled = true; } catch (Exception) { }
+				try { if (holder != null && GameController.instance != null) GameController.instance.ControlsEnabled(holder); } catch (Exception) { }
 				pausedEvents = null;
 				Cursor.lockState = prevLock;
 				Cursor.visible = prevVisible;
