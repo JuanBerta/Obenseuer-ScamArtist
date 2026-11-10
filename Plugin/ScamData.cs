@@ -155,6 +155,13 @@ namespace ScamArtistMod
 			listFrom = scams;
 		}
 
+		// Write the in-memory list out before the game saves.
+		public override bool OnSavingGameSpecial()
+		{
+			if (list != null) Store();
+			return base.OnSavingGameSpecial();
+		}
+
 		// Closed scams that have been seen in the ledger disappear.
 		internal void RemoveSeenClosed()
 		{
