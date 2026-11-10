@@ -33,8 +33,10 @@ namespace ScamArtistMod
 		internal static ConfigEntry<float> SuspicionPenalty;
 		internal static ConfigEntry<int> SuspicionDays;
 		internal static ConfigEntry<float> DrunkPenalty;
-		internal static ConfigEntry<float> MinReplyDays;
-		internal static ConfigEntry<float> MaxReplyDays;
+		internal static ConfigEntry<float> ExtraReplyHours;
+		internal static ConfigEntry<float> NoTravelMinHours;
+		internal static ConfigEntry<float> NoTravelMaxHours;
+		internal static ConfigEntry<bool> LetterNotifications;
 		internal static ConfigEntry<float> ReviewChance;
 		internal static ConfigEntry<float> DocsChance;
 		internal static ConfigEntry<int> DocsDays;
@@ -80,8 +82,10 @@ namespace ScamArtistMod
 			BaseFreezeChance = cfg.Bind("Payout", "BaseFreezeChance", 0.035f, D("Chance the bank freezes the account after a payment (the game's own number).", 80, new AcceptableValueRange<float>(0f, 1f)));
 			FreezeGrowthPer100Rm = cfg.Bind("Payout", "FreezeGrowthPer100Rm", 0.25f, D("The freeze chance grows by this share for every 100 RM your scams have moved through the account.", 75, new AcceptableValueRange<float>(0f, 5f)));
 
-			MinReplyDays = cfg.Bind("Letters", "MinReplyDays", 1f, D("Fewest in-game days before a company writes back.", 100, new AcceptableValueRange<float>(0f, 7f)));
-			MaxReplyDays = cfg.Bind("Letters", "MaxReplyDays", 2f, D("Most in-game days before a company writes back.", 95, new AcceptableValueRange<float>(0f, 7f)));
+			ExtraReplyHours = cfg.Bind("Letters", "ExtraReplyHours", 0f, D("Like in the game, an invoice first travels by mail. The company answers when it arrives, plus this many in-game hours.", 100, new AcceptableValueRange<float>(0f, 72f)));
+			NoTravelMinHours = cfg.Bind("Letters", "NoTravelMinHours", 6f, D("If an invoice arrives with no travel time (some mailboxes), the fewest hours before the answer.", 96, new AcceptableValueRange<float>(0f, 72f)));
+			NoTravelMaxHours = cfg.Bind("Letters", "NoTravelMaxHours", 18f, D("The same, most hours.", 95, new AcceptableValueRange<float>(0f, 72f)));
+			LetterNotifications = cfg.Bind("Letters", "LetterNotifications", true, D("Show a short notification when a letter arrives in the scam ledger.", 94));
 			ReviewChance = cfg.Bind("Letters", "ReviewChance", 0.25f, D("When a scam doesn't pass, the chance the company puts it \"under review\" for one more day first.", 90, new AcceptableValueRange<float>(0f, 1f)));
 			DocsChance = cfg.Bind("Letters", "MissingDocumentationChance", 0.3f, D("When a scam doesn't pass, the chance they ask for more documentation instead of reporting you (+2% per Fraud level).", 85, new AcceptableValueRange<float>(0f, 1f)));
 			DocsDays = cfg.Bind("Letters", "FollowUpDays", 3, D("In-game days you have to mail a better invoice as the follow-up.", 80, new AcceptableValueRange<int>(1, 14)));
@@ -202,13 +206,18 @@ namespace ScamArtistMod
 			ItemQualityData q = ItemMetaUtilities.GetMetaOfType<ItemQualityData>(im.meta);
 			float quality = q != null ? q.quality : 0.5f;
 			int now = Now;
+			// The game's mail travel time is the first phase. If the invoice got here without travelling, wait a while anyway.
+			bool travelled = now - lastInsertAt > 30;
+			float hours = travelled ? ExtraReplyHours.Value : UnityEngine.Random.Range(NoTravelMinHours.Value, Mathf.Max(NoTravelMinHours.Value, NoTravelMaxHours.Value));
 			int count = Mathf.Max(1, im.amount);
-			for (int i = 0; i < count; i++) Send(quality, receiver.targetBank ?? "", now);
+			for (int i = 0; i < count; i++) Send(quality, receiver.targetBank ?? "", now, Mathf.RoundToInt(hours * 60f));
 			Save.Store();
 			return false;
 		}
 
-		private static void Send(float quality, string bank, int now)
+		internal static int lastInsertAt = -100000;
+
+		private static void Send(float quality, string bank, int now, int replyIn)
 		{
 			Scam docs = OpenDocs();
 			if (docs != null)
@@ -218,7 +227,7 @@ namespace ScamArtistMod
 					docs.State = ScamState.Pending;
 					docs.Chance = 1f;
 					docs.DueAt = now + Day;
-					Letter(docs.Company, "Thank you for the additional documentation. Your invoice is being processed.");
+					Letter(docs, docs.Company, "Thank you for the additional documentation. Your invoice is being processed.");
 				}
 				else
 				{
@@ -229,23 +238,25 @@ namespace ScamArtistMod
 			Company c = Company.ForQuality(quality);
 			float chance, max;
 			Odds(quality, c, Mode, out chance, out max);
-			float days = UnityEngine.Random.Range(MinReplyDays.Value, Mathf.Max(MinReplyDays.Value, MaxReplyDays.Value));
 			var s = new Scam
 			{
 				Id = Save.nextId++, Company = c.Name, Quality = quality, Mode = Mode, Chance = chance, MaxPay = max, Bank = bank,
-				SentAt = now, DueAt = now + Mathf.RoundToInt(days * Day), State = ScamState.Pending
+				SentAt = now, DueAt = now + replyIn, State = ScamState.Pending
 			};
 			Save.AddSend(c.Name, now);
 			Save.Scams().Add(s);
-			SkillHost.Notify("Scam sent", c.Name + ": " + Mathf.RoundToInt(chance * 100f) + "% chance, up to " + max.ToString("0.#", CultureInfo.InvariantCulture) + " RM. Expect a letter in " + Mathf.Max(1, Mathf.RoundToInt(days)) + " day(s).");
 		}
 
 		// ---- Letters and outcomes ----
 
-		private static void Letter(string from, string text)
+		// Letters go to the scam ledger, not to your mailbox. A short notification says one arrived.
+		private static void Letter(Scam s, string from, string text)
 		{
-			if (Save != null) Save.AddLetter(Now, from, text);
-			SkillHost.Notify("Letter from " + from, text);
+			s.From = from;
+			s.Letter = text;
+			s.LetterAt = Now;
+			s.Unread = true;
+			if (LetterNotifications.Value) SkillHost.Notify("Scam ledger: new letter", "From " + from + ". Press " + LedgerKey.Value + " to read it.");
 		}
 
 		private static float nextTick;
@@ -255,7 +266,7 @@ namespace ScamArtistMod
 			SkillHost.Tick();
 			try
 			{
-				if (LedgerKey.Value.IsDown() && SkillHost.InGame) ledgerOpen = !ledgerOpen;
+				if (LedgerKey.Value.IsDown() && SkillHost.InGame) SetLedger(!ledgerOpen);
 				if (Time.unscaledTime < nextTick) return;
 				nextTick = Time.unscaledTime + 2f;
 				if (SkillHost.InGame && Save != null && Time.timeScale > 0f) Process();
@@ -279,7 +290,7 @@ namespace ScamArtistMod
 						break;
 					case ScamState.Docs:
 						s.State = ScamState.Failed;
-						Letter(s.Company, "We never received the documentation we asked for. We consider the matter closed.");
+						Letter(s, s.Company, "We never received the documentation we asked for. We consider the matter closed.");
 						break;
 					case ScamState.Investigation:
 						EndInvestigation(s);
@@ -303,7 +314,7 @@ namespace ScamArtistMod
 				s.Reviewed = true;
 				s.State = ScamState.Review;
 				s.DueAt = now + Day;
-				Letter(s.Company, "Your invoice is under review. You will hear from us shortly.");
+				Letter(s, s.Company, "Your invoice is under review. You will hear from us shortly.");
 				return;
 			}
 			Skill.AddXp(XpPerFailure.Value, "scam failed");
@@ -326,7 +337,7 @@ namespace ScamArtistMod
 			s.State = ScamState.Docs;
 			s.Required = Mathf.Min(2f, s.Quality + 0.2f);
 			s.DueAt = now + DocsDays.Value * Day;
-			Letter(s.Company, text + " (Needs quality " + s.Required.ToString("0.00", CultureInfo.InvariantCulture) + " or better.)");
+			Letter(s, s.Company, text + " (Needs quality " + s.Required.ToString("0.00", CultureInfo.InvariantCulture) + " or better.)");
 		}
 
 		private static void StartInvestigation(Scam s, int now, string text)
@@ -335,7 +346,7 @@ namespace ScamArtistMod
 			s.Severity = Mathf.Clamp(Mathf.RoundToInt(s.MaxPay * 0.8f), 10, 300);
 			s.DueAt = now + InvestigationDays.Value * Day;
 			s.LayLowSince = now;
-			Letter(s.Company, text + " Charges in " + InvestigationDays.Value + " days. Open the scam ledger (" + LedgerKey.Value + ") to deal with it.");
+			Letter(s, s.Company, text + " Charges in " + InvestigationDays.Value + " days. Open the scam ledger (" + LedgerKey.Value + ") to deal with it.");
 		}
 
 		private static bool ourCrime;
@@ -346,7 +357,7 @@ namespace ScamArtistMod
 			if (layLow && UnityEngine.Random.value < LayLowDropChance.Value + 0.02f * Skill.Level)
 			{
 				s.State = ScamState.Dropped;
-				Letter("the Militia", "The investigation into the " + s.Company + " invoice was dropped for lack of evidence.");
+				Letter(s, "the Militia", "The investigation into the " + s.Company + " invoice was dropped for lack of evidence.");
 				Skill.AddXp(XpPerFailure.Value * 1.5f, "laid low");
 				return;
 			}
@@ -358,7 +369,7 @@ namespace ScamArtistMod
 			}
 			catch (Exception e) { SkillHost.LogWarning("Fraud charge: " + e.Message); }
 			finally { ourCrime = false; }
-			Letter("the Militia", "You are charged with fraud over the " + s.Company + " invoice.");
+			Letter(s, "the Militia", "You are charged with fraud over the " + s.Company + " invoice.");
 		}
 
 		private static void Pay(Scam s)
@@ -369,7 +380,7 @@ namespace ScamArtistMod
 			if (string.IsNullOrEmpty(s.Bank))
 			{
 				Money.instance.AddMoney(amount, Money.Currency.RM);
-				Letter(s.Company, "Payment processed: " + paid + ".");
+				Letter(s, s.Company, "Payment processed: " + paid + ".");
 			}
 			else
 			{
@@ -377,7 +388,7 @@ namespace ScamArtistMod
 				if (acc != null && acc.Frozen)
 				{
 					s.State = ScamState.Failed;
-					Letter(s.Company, "Our payment of " + paid + " bounced: your " + s.Bank + " account is frozen.");
+					Letter(s, s.Company, "Our payment of " + paid + " bounced: your " + s.Bank + " account is frozen.");
 					return;
 				}
 				if (acc == null)
@@ -387,7 +398,7 @@ namespace ScamArtistMod
 				}
 				acc.RM += amount;
 				Save.bankMoved += amount;
-				Letter(s.Company, "Payment processed: " + paid + " to your " + s.Bank + " account.");
+				Letter(s, s.Company, "Payment processed: " + paid + " to your " + s.Bank + " account.");
 				float freeze = BaseFreezeChance.Value * (1f + FreezeGrowthPer100Rm.Value * Save.bankMoved / 100f);
 				if (UnityEngine.Random.value < Mathf.Min(0.5f, freeze))
 				{
@@ -420,12 +431,12 @@ namespace ScamArtistMod
 			if (ok)
 			{
 				s.State = ScamState.Dropped;
-				Letter("the Militia", "After a generous donation, the " + s.Company + " investigation was closed.");
+				Letter(s, "the Militia", "After a generous donation, the " + s.Company + " investigation was closed.");
 			}
 			else
 			{
 				s.Severity = Mathf.RoundToInt(s.Severity * 1.25f);
-				Letter("the Militia", "Your bribe was refused (and kept). The charge got worse.");
+				Letter(s, "the Militia", "Your bribe was refused (and kept). The charge got worse.");
 			}
 			Save.Store();
 		}
@@ -436,94 +447,206 @@ namespace ScamArtistMod
 			if (Money.instance.RMoneyAmount < cost) { SkillHost.Notify("Scam Artist", "You need " + cost.ToString("0.00", CultureInfo.InvariantCulture) + " RM to settle."); return; }
 			Money.instance.RemoveMoney(cost, Money.Currency.RM);
 			s.State = ScamState.Dropped;
-			Letter(s.Company, "We accept your settlement of " + cost.ToString("0.00", CultureInfo.InvariantCulture) + " RM. We will not press charges.");
+			Letter(s, s.Company, "We accept your settlement of " + cost.ToString("0.00", CultureInfo.InvariantCulture) + " RM. We will not press charges.");
 			Save.Store();
 		}
 
-		// ---- Ledger window ----
+		// ---- Ledger window (styled like the game's own panels) ----
 
 		private static bool ledgerOpen;
-		private static Rect win = new Rect(80, 80, 560, 520);
 		private static Vector2 scroll;
-		private static GUIStyle wrap, head;
+		private static GUIStyle sPanel, sTitle, sSection, sTab, sTabOn, sCard, sCardHead, sCardText, sCardSmall, sButton, sHint, sNew;
+		private static Font gameFont;
+		private static bool hadFont;
+		private static readonly Color Paper = new Color(0.91f, 0.88f, 0.81f), Ink = new Color(0.14f, 0.11f, 0.08f), Ochre = new Color(0.79f, 0.6f, 0.23f), Cream = new Color(0.94f, 0.9f, 0.82f);
+
+		internal static void SetLedger(bool open)
+		{
+			if (ledgerOpen && !open && Save != null) Save.RemoveSeenClosed();   // read and closed scams disappear
+			ledgerOpen = open;
+		}
+
+		private static Texture2D Framed(Color fill, Color edge, int width)
+		{
+			var t = new Texture2D(8, 8) { hideFlags = HideFlags.HideAndDontSave };
+			for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++)
+				t.SetPixel(x, y, x < width || y < width || x >= 8 - width || y >= 8 - width ? edge : fill);
+			t.Apply();
+			return t;
+		}
+
+		private static GUIStyle Box(Color fill, Color edge, int width, GUIStyle from)
+		{
+			var s = new GUIStyle(from) { border = new RectOffset(3, 3, 3, 3) };
+			s.normal.background = s.onNormal.background = Framed(fill, edge, width);
+			return s;
+		}
+
+		private static string Spaced(string text) { return string.Join(" ", Array.ConvertAll(text.ToUpperInvariant().ToCharArray(), c => c.ToString())); }
+
+		private static void InitStyles()
+		{
+			if (sPanel != null && sPanel.normal.background != null && sCard.normal.background != null && (gameFont != null || !hadFont)) return;
+			gameFont = null;
+			foreach (Font f in Resources.FindObjectsOfTypeAll<Font>())
+			{
+				string n = f.name.ToLowerInvariant();
+				if (n.Contains("special") || n.Contains("elite") || n.Contains("typewriter") || n.Contains("courier") || n.Contains("american")) { gameFont = f; break; }
+			}
+			hadFont = gameFont != null;
+			sPanel = Box(new Color(0.1f, 0.09f, 0.08f, 0.98f), new Color(0.27f, 0.25f, 0.21f), 2, GUI.skin.window);
+			sPanel.padding = new RectOffset(16, 16, 46, 14);
+			sTitle = new GUIStyle(GUI.skin.label) { font = gameFont, fontSize = 17, alignment = TextAnchor.MiddleCenter };
+			sTitle.normal.textColor = Cream;
+			sSection = Box(new Color(0.15f, 0.14f, 0.13f), new Color(0.2f, 0.19f, 0.17f), 1, GUI.skin.label);
+			sSection.font = gameFont; sSection.fontSize = 13; sSection.padding = new RectOffset(12, 12, 8, 8); sSection.margin = new RectOffset(0, 0, 12, 6);
+			sSection.normal.textColor = Cream;
+			sTab = Box(new Color(0.42f, 0.29f, 0.08f), new Color(0.27f, 0.18f, 0.05f), 1, GUI.skin.button);
+			sTab.font = gameFont; sTab.fontSize = 12; sTab.padding = new RectOffset(10, 10, 7, 7);
+			sTab.normal.textColor = sTab.hover.textColor = new Color(0.98f, 0.93f, 0.8f);
+			sTab.hover.background = Framed(new Color(0.6f, 0.42f, 0.12f), new Color(0.27f, 0.18f, 0.05f), 1);
+			sTabOn = new GUIStyle(sTab);
+			sTabOn.normal.background = sTabOn.hover.background = Framed(Ochre, new Color(0.95f, 0.75f, 0.35f), 1);
+			sTabOn.normal.textColor = sTabOn.hover.textColor = Ink;
+			sCard = Box(Paper, new Color(0.55f, 0.5f, 0.42f), 1, GUI.skin.box);
+			sCard.padding = new RectOffset(12, 12, 9, 9); sCard.margin = new RectOffset(0, 0, 0, 6);
+			sCardHead = new GUIStyle(GUI.skin.label) { font = gameFont, fontSize = 14, richText = true, wordWrap = true };
+			sCardHead.normal.textColor = Ink;
+			sCardText = new GUIStyle(sCardHead) { fontSize = 13 };
+			sCardText.normal.textColor = new Color(0.25f, 0.21f, 0.16f);
+			sCardSmall = new GUIStyle(sCardHead) { fontSize = 11 };
+			sCardSmall.normal.textColor = new Color(0.42f, 0.37f, 0.3f);
+			sButton = Box(new Color(0.42f, 0.29f, 0.08f), new Color(0.27f, 0.18f, 0.05f), 1, GUI.skin.button);
+			sButton.font = gameFont; sButton.fontSize = 12; sButton.richText = true;
+			sButton.normal.textColor = sButton.hover.textColor = new Color(0.98f, 0.93f, 0.8f);
+			sButton.hover.background = Framed(new Color(0.6f, 0.42f, 0.12f), new Color(0.27f, 0.18f, 0.05f), 1);
+			sHint = new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true, richText = true };
+			sHint.normal.textColor = new Color(0.66f, 0.62f, 0.53f);
+			sNew = new GUIStyle(GUI.skin.label) { font = gameFont, fontSize = 11, alignment = TextAnchor.MiddleRight };
+			sNew.normal.textColor = new Color(0.7f, 0.2f, 0.12f);
+		}
 
 		private void OnGUI()
 		{
 			if (!ledgerOpen || Save == null) return;
-			if (!SkillHost.InGame) { ledgerOpen = false; return; }
-			if (wrap == null)
-			{
-				wrap = new GUIStyle(GUI.skin.label) { wordWrap = true, richText = true };
-				head = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, richText = true };
-			}
-			win = GUI.Window(0x5CA7, win, DrawLedger, "Scam ledger  (" + LedgerKey.Value + " to close)");
+			if (!SkillHost.InGame) { SetLedger(false); return; }
+			InitStyles();
+			float w = Mathf.Min(720f, Screen.width - 40f), h = Mathf.Min(680f, Screen.height - 80f);
+			Rect r = new Rect((Screen.width - w) / 2f, (Screen.height - h) / 2f, w, h);
+			GUI.Box(r, GUIContent.none, sPanel);
+			GUI.Label(new Rect(r.x, r.y + 10f, r.width, 26f), Spaced("Scam ledger"), sTitle);
+			GUILayout.BeginArea(new Rect(r.x + 16f, r.y + 46f, r.width - 32f, r.height - 60f));
+			DrawLedger();
+			GUILayout.EndArea();
 		}
 
-		private static string StateText(Scam s, int now)
+		private struct InMail { public string company; public int minutes; }
+
+		private static List<InMail> MailInTransit()
+		{
+			var list = new List<InMail>();
+			try
+			{
+				foreach (var kv in MailController.instance.unprocessedMail)
+				{
+					MailController.ItemMail im = kv.Key as MailController.ItemMail;
+					if (im == null || im.item == null || im.item.ID != 16010) continue;
+					ItemQualityData q = ItemMetaUtilities.GetMetaOfType<ItemQualityData>(im.meta);
+					string c = OpenDocs() != null ? OpenDocs().Company + " (follow-up)" : Company.ForQuality(q != null ? q.quality : 0.5f).Name;
+					int n = Mathf.Max(1, im.amount);
+					for (int i = 0; i < n; i++) list.Add(new InMail { company = c, minutes = kv.Value != null ? kv.Value.remainingInSeconds / 60 : 0 });
+				}
+			}
+			catch (Exception) { }
+			return list;
+		}
+
+		private static string Status(Scam s, int now)
 		{
 			switch (s.State)
 			{
-				case ScamState.Pending: return s.Chance >= 1f ? "follow-up accepted, paying in " + When(s.DueAt - now) : "waiting for a letter (" + When(s.DueAt - now) + ")";
-				case ScamState.Review: return "under review (" + When(s.DueAt - now) + ")";
-				case ScamState.Docs: return "<color=#e8c060>needs documentation</color>: mail an invoice of quality " + s.Required.ToString("0.00", CultureInfo.InvariantCulture) + "+ within " + When(s.DueAt - now);
-				case ScamState.Investigation: return "<color=#e07060>under investigation</color>, charges in " + When(s.DueAt - now) + " (severity " + s.Severity + ")";
-				case ScamState.Paid: return "<color=#80d080>paid</color>";
-				case ScamState.Failed: return "failed";
-				case ScamState.Dropped: return "dropped";
-				case ScamState.Charged: return "<color=#e07060>charged with fraud</color>";
+				case ScamState.Pending: return s.Chance >= 1f ? "Follow-up accepted: payment in " + When(s.DueAt - now) : "Received: answer in " + When(s.DueAt - now);
+				case ScamState.Review: return "Under review: answer in " + When(s.DueAt - now);
+				case ScamState.Docs: return "<b>Needs documentation:</b> mail an invoice of quality " + s.Required.ToString("0.00", CultureInfo.InvariantCulture) + "+ within " + When(s.DueAt - now);
+				case ScamState.Investigation: return "<b><color=#8a2a18>Under investigation:</color></b> charges in " + When(s.DueAt - now) + " (severity " + s.Severity + ")";
+				case ScamState.Paid: return "<b><color=#2f6a22>Paid</color></b>";
+				case ScamState.Failed: return "<b>Failed</b>";
+				case ScamState.Dropped: return "<b><color=#2f6a22>Dropped</color></b>";
+				case ScamState.Charged: return "<b><color=#8a2a18>Charged with fraud</color></b>";
 			}
 			return "";
 		}
 
-		private static void DrawLedger(int id)
+		private static void Card(Scam s, int now, bool canClick, bool repaint)
+		{
+			GUILayout.BeginVertical(sCard);
+			GUILayout.BeginHorizontal();
+			GUILayout.Label("<b>" + s.Company + "</b>", sCardHead);
+			if (s.Unread) GUILayout.Label("NEW LETTER", sNew, GUILayout.Width(110));
+			GUILayout.EndHorizontal();
+			GUILayout.Label(s.Mode + " risk  ·  up to " + s.MaxPay.ToString("0.#", CultureInfo.InvariantCulture) + " RM  ·  " + Mathf.RoundToInt(Mathf.Min(1f, s.Chance) * 100f) + "% chance", sCardSmall);
+			GUILayout.Label(Status(s, now), sCardText);
+			if (!string.IsNullOrEmpty(s.Letter))
+				GUILayout.Label("<i>From " + s.From + " (" + When(now - s.LetterAt) + " ago):</i>\n\"" + s.Letter + "\"", sCardText);
+			if (s.State == ScamState.Investigation)
+			{
+				GUILayout.BeginHorizontal();
+				GUI.enabled = canClick && !s.BribeTried;
+				if (GUILayout.Button(s.BribeTried ? "Bribe refused" : "Bribe: " + BribeCost(s) + " OC", sButton)) TryBribe(s);
+				GUI.enabled = canClick;
+				if (GUILayout.Button("Settle: " + PayBackCost(s).ToString("0.00", CultureInfo.InvariantCulture) + " RM", sButton)) PayBack(s);
+				GUI.enabled = true;
+				GUILayout.EndHorizontal();
+				GUILayout.Label("Or lay low: commit no crimes and it may be dropped.", sCardSmall);
+			}
+			GUILayout.EndVertical();
+			if (repaint) { s.Unread = false; if (!s.Open) s.Seen = true; }
+		}
+
+		private static void DrawLedger()
 		{
 			int now = Now;
 			bool canClick = Cursor.visible;
+			bool repaint = Event.current.type == EventType.Repaint;
+
 			GUILayout.BeginHorizontal();
-			GUILayout.Label("Next invoices:", head, GUILayout.Width(110));
+			GUILayout.Label(Spaced("Next invoices"), sSection, GUILayout.Width(200));
 			GUI.enabled = canClick;
 			foreach (ScamMode m in new[] { ScamMode.Small, ScamMode.Normal, ScamMode.Greedy })
-			{
-				string label = (Mode == m ? "● " : "") + m + (m == ScamMode.Small ? " (safer)" : m == ScamMode.Greedy ? " (riskier)" : "");
-				if (GUILayout.Button(label)) Mode = m;
-			}
+				if (GUILayout.Button(Spaced(m.ToString()), Mode == m ? sTabOn : sTab)) Mode = m;
 			GUI.enabled = true;
 			GUILayout.EndHorizontal();
-			if (!canClick) GUILayout.Label("<i>Open your inventory to use the buttons.</i>", wrap);
-			if (Save.lastCrimeAt >= now - Day) GUILayout.Label("<color=#e8c060>You committed a crime recently: you're not laying low.</color>", wrap);
+			GUILayout.Label("Small is safer and pays less, Greedy is riskier and pays much more." + (canClick ? "" : " Open your inventory to use the buttons."), sHint);
+			if (Save.lastCrimeAt >= now - Day) GUILayout.Label("<color=#e8c060>You committed a crime recently, so you're not laying low.</color>", sHint);
 
 			scroll = GUILayout.BeginScrollView(scroll);
-			GUILayout.Label("Scams", head);
+			var mail = MailInTransit();
 			var scams = Save.Scams();
-			if (scams.Count == 0) GUILayout.Label("None yet. Make a Scam Invoice at the Paperwork station and mail it.", wrap);
-			for (int i = scams.Count - 1; i >= 0; i--)
+			var open = scams.FindAll(x => x.Open);
+			var closed = scams.FindAll(x => !x.Open);
+
+			GUILayout.Label(Spaced("In the mail") + "   (" + mail.Count + ")", sSection);
+			if (mail.Count == 0) GUILayout.Label("Nothing on its way. Make a Scam Invoice at the Paperwork station and mail it.", sHint);
+			foreach (InMail m in mail)
 			{
-				Scam s = scams[i];
-				GUILayout.Label("<b>" + s.Company + "</b>  ·  " + s.Mode + "  ·  up to " + s.MaxPay.ToString("0.#", CultureInfo.InvariantCulture) + " RM  ·  " + StateText(s, now), wrap);
-				if (s.State == ScamState.Investigation)
-				{
-					GUILayout.BeginHorizontal();
-					GUI.enabled = canClick && !s.BribeTried;
-					if (GUILayout.Button(s.BribeTried ? "Bribe refused" : "Bribe (" + BribeCost(s) + " OC, Bribery skill)")) TryBribe(s);
-					GUI.enabled = canClick;
-					if (GUILayout.Button("Settle (" + PayBackCost(s).ToString("0.00", CultureInfo.InvariantCulture) + " RM)")) PayBack(s);
-					GUI.enabled = true;
-					GUILayout.EndHorizontal();
-					GUILayout.Label("<i>Or lay low: commit no crimes and it may be dropped.</i>", wrap);
-				}
+				GUILayout.BeginVertical(sCard);
+				GUILayout.Label("<b>" + m.company + "</b>", sCardHead);
+				GUILayout.Label("On its way: arrives in " + When(m.minutes), sCardText);
+				GUILayout.EndVertical();
 			}
-			GUILayout.Space(8);
-			GUILayout.Label("Letters", head);
-			var letters = Save.Letters();
-			if (letters.Count == 0) GUILayout.Label("No letters yet.", wrap);
-			for (int i = letters.Count - 1; i >= 0; i--)
+
+			GUILayout.Label(Spaced("Open scams") + "   (" + open.Count + ")", sSection);
+			if (open.Count == 0) GUILayout.Label("No open scams.", sHint);
+			for (int i = open.Count - 1; i >= 0; i--) Card(open[i], now, canClick, repaint);
+
+			if (closed.Count > 0)
 			{
-				int at;
-				int.TryParse(letters[i][0], out at);
-				GUILayout.Label("<b>" + letters[i][1] + "</b> <color=#999999>(" + When(now - at) + " ago)</color>\n" + letters[i][2], wrap);
+				GUILayout.Label(Spaced("Closed") + "   (" + closed.Count + ")", sSection);
+				GUILayout.Label("Closed scams disappear when you close the ledger.", sHint);
+				for (int i = closed.Count - 1; i >= 0; i--) Card(closed[i], now, canClick, repaint);
 			}
 			GUILayout.EndScrollView();
-			GUI.DragWindow();
+			GUILayout.Label("Press " + LedgerKey.Value + " to close.", sHint);
 		}
 
 		// ---- Hooks ----
@@ -540,6 +663,10 @@ namespace ScamArtistMod
 				try { return OnInvoiceMailed(__instance, mail); }
 				catch (Exception e) { SkillHost.LogWarning("Scam Artist mail: " + e.Message); return true; }
 			}
+
+			[HarmonyPatch(typeof(Mailbox), "InsertMail")]
+			[HarmonyPrefix]
+			private static void InsertMail_Prefix() { lastInsertAt = Now; }
 
 			// Any crime ends laying low (except the mod's own fraud charge).
 			[HarmonyPatch(typeof(Crime), "CommitCrime", new Type[] { typeof(NPC.NPCReference), typeof(int), typeof(Crime.CrimeType), typeof(bool) })]

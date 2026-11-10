@@ -69,6 +69,13 @@ namespace ScamArtistMod
 		public bool Reviewed;
 		public bool BribeTried;
 		public int LayLowSince;
+		public string From = "";      // who wrote the latest letter
+		public string Letter = "";    // the latest letter about this scam
+		public int LetterAt;
+		public bool Unread;           // the latest letter hasn't been seen in the ledger yet
+		public bool Seen;             // closed and seen in the ledger: removed when the ledger closes
+
+		private static string Esc(string v) { return (v ?? "").Replace(";", ",").Replace("|", "/"); }
 
 		private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
@@ -79,7 +86,8 @@ namespace ScamArtistMod
 				Id.ToString(Inv), Company.Replace(";", ","), Quality.ToString("0.####", Inv), ((int)Mode).ToString(Inv),
 				Chance.ToString("0.####", Inv), MaxPay.ToString("0.##", Inv), (Bank ?? "").Replace(";", ","), SentAt.ToString(Inv),
 				DueAt.ToString(Inv), ((int)State).ToString(Inv), Required.ToString("0.####", Inv), Severity.ToString(Inv),
-				Reviewed ? "1" : "0", BribeTried ? "1" : "0", LayLowSince.ToString(Inv)
+				Reviewed ? "1" : "0", BribeTried ? "1" : "0", LayLowSince.ToString(Inv),
+				Esc(From), Esc(Letter), LetterAt.ToString(Inv), Unread ? "1" : "0", Seen ? "1" : "0"
 			});
 		}
 
@@ -94,7 +102,9 @@ namespace ScamArtistMod
 					Id = int.Parse(p[0], Inv), Company = p[1], Quality = float.Parse(p[2], Inv), Mode = (ScamMode)int.Parse(p[3], Inv),
 					Chance = float.Parse(p[4], Inv), MaxPay = float.Parse(p[5], Inv), Bank = p[6], SentAt = int.Parse(p[7], Inv),
 					DueAt = int.Parse(p[8], Inv), State = (ScamState)int.Parse(p[9], Inv), Required = float.Parse(p[10], Inv),
-					Severity = int.Parse(p[11], Inv), Reviewed = p[12] == "1", BribeTried = p[13] == "1", LayLowSince = int.Parse(p[14], Inv)
+					Severity = int.Parse(p[11], Inv), Reviewed = p[12] == "1", BribeTried = p[13] == "1", LayLowSince = int.Parse(p[14], Inv),
+					From = p.Length > 15 ? p[15] : "", Letter = p.Length > 16 ? p[16] : "",
+					LetterAt = p.Length > 17 ? int.Parse(p[17], Inv) : 0, Unread = p.Length > 18 && p[18] == "1", Seen = p.Length > 19 && p[19] == "1"
 				};
 			}
 			catch (Exception) { return null; }
@@ -136,18 +146,20 @@ namespace ScamArtistMod
 
 		internal void Store()
 		{
-			var keep = new List<Scam>();
-			var done = new List<Scam>();
-			foreach (Scam s in Scams()) (s.Open ? keep : done).Add(s);
-			// keep the 15 latest finished scams for the ledger
-			int skip = Mathf.Max(0, done.Count - 15);
-			for (int i = skip; i < done.Count; i++) keep.Add(done[i]);
+			var keep = new List<Scam>(Scams());
 			keep.Sort((a, b) => a.Id.CompareTo(b.Id));
 			var parts = new List<string>();
 			foreach (Scam s in keep) parts.Add(s.ToString());
 			scams = string.Join("|", parts.ToArray());
 			list = keep;
 			listFrom = scams;
+		}
+
+		// Closed scams that have been seen in the ledger disappear.
+		internal void RemoveSeenClosed()
+		{
+			Scams().RemoveAll(s => !s.Open && s.Seen);
+			Store();
 		}
 
 		internal void AddLetter(int clock, string title, string text)
