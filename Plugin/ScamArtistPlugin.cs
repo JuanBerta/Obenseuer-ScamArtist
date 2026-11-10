@@ -169,8 +169,11 @@ namespace ScamArtistMod
 			float chance, max;
 			Odds(quality, c, Mode, out chance, out max);
 			float lo = max * MinPayoutShare.Value;
-			return "Scam Artist: addressed to " + c.Name + " (" + Mode + ")\n" +
-			       "Chance " + Mathf.RoundToInt(chance * 100f) + "%  ·  " + lo.ToString("0.#", CultureInfo.InvariantCulture) + "–" + max.ToString("0.#", CultureInfo.InvariantCulture) + " RM  ·  Suspicion: " + SuspicionWord(SuspicionOf(c.Name));
+			return "Scam Artist: addressed to " + c.Name + "\n" +
+			       "Chance: " + Mathf.RoundToInt(chance * 100f) + "%\n" +
+			       "Payout: " + lo.ToString("0.#", CultureInfo.InvariantCulture) + "–" + max.ToString("0.#", CultureInfo.InvariantCulture) + " RM\n" +
+			       "Suspicion: " + SuspicionWord(SuspicionOf(c.Name)) + "\n" +
+			       "Risk: " + Mode + " (change it in the ledger, " + LedgerKey.Value + ")";
 		}
 
 		private static string CardNote()
