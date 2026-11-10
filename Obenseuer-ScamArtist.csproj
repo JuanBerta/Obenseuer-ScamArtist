@@ -33,6 +33,7 @@
     <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(ObenseuerDir)\Obenseuer_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(ObenseuerDir)\Obenseuer_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(ObenseuerDir)\Obenseuer_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(ObenseuerDir)\Obenseuer_Data\Managed\UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.IMGUIModule"><HintPath>$(ObenseuerDir)\Obenseuer_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
   <ItemGroup>

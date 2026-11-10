@@ -57,6 +57,8 @@ namespace ScamArtistMod
 			Skill.CardNote = CardNote;
 			SkillHost.Init(this, Logger, Skill, "ScamArtist_Save", go => go.AddComponent<ScamArtistSave>());
 			Harmony.CreateAndPatchAll(typeof(Hooks));
+			Harmony.CreateAndPatchAll(typeof(LedgerBlockBool));
+			Harmony.CreateAndPatchAll(typeof(LedgerBlockAxis));
 			Logger.LogInfo("Scam Artist loaded.");
 		}
 
@@ -267,6 +269,7 @@ namespace ScamArtistMod
 			try
 			{
 				if (LedgerKey.Value.IsDown() && SkillHost.InGame) SetLedger(!ledgerOpen);
+				else if (ledgerOpen && Input.GetKeyDown(KeyCode.Escape)) closeAtLateUpdate = true;   // keep blocking Esc this frame
 				if (Time.unscaledTime < nextTick) return;
 				nextTick = Time.unscaledTime + 2f;
 				if (SkillHost.InGame && Save != null && Time.timeScale > 0f) Process();
@@ -460,10 +463,45 @@ namespace ScamArtistMod
 		private static bool hadFont;
 		private static readonly Color Paper = new Color(0.91f, 0.88f, 0.81f), Ink = new Color(0.14f, 0.11f, 0.08f), Ochre = new Color(0.79f, 0.6f, 0.23f), Cream = new Color(0.94f, 0.9f, 0.82f);
 
+		internal static bool LedgerOpen { get { return ledgerOpen; } }
+		private static bool closeAtLateUpdate;
+		private static CursorLockMode prevLock;
+		private static bool prevVisible;
+		private static UnityEngine.EventSystems.EventSystem pausedEvents;
+
+		// While the ledger is open it owns the mouse: the cursor is free, the game's controls and its own
+		// menus underneath don't react, and Esc closes the ledger.
 		internal static void SetLedger(bool open)
 		{
-			if (ledgerOpen && !open && Save != null) Save.RemoveSeenClosed();   // read and closed scams disappear
+			if (open == ledgerOpen) return;
+			if (open)
+			{
+				prevLock = Cursor.lockState;
+				prevVisible = Cursor.visible;
+				try
+				{
+					pausedEvents = UnityEngine.EventSystems.EventSystem.current;
+					if (pausedEvents != null && pausedEvents.enabled) pausedEvents.enabled = false; else pausedEvents = null;
+				}
+				catch (Exception) { pausedEvents = null; }
+			}
+			else
+			{
+				if (Save != null) Save.RemoveSeenClosed();   // read and closed scams disappear
+				try { if (pausedEvents != null) pausedEvents.enabled = true; } catch (Exception) { }
+				pausedEvents = null;
+				Cursor.lockState = prevLock;
+				Cursor.visible = prevVisible;
+			}
 			ledgerOpen = open;
+		}
+
+		private void LateUpdate()
+		{
+			if (closeAtLateUpdate) { closeAtLateUpdate = false; SetLedger(false); return; }
+			if (!ledgerOpen) return;
+			Cursor.lockState = CursorLockMode.None;
+			Cursor.visible = true;
 		}
 
 		private static Texture2D Framed(Color fill, Color edge, int width)
@@ -530,6 +568,7 @@ namespace ScamArtistMod
 		{
 			if (!ledgerOpen || Save == null) return;
 			if (!SkillHost.InGame) { SetLedger(false); return; }
+			if (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape) { closeAtLateUpdate = true; Event.current.Use(); }
 			InitStyles();
 			float w = Mathf.Min(720f, Screen.width - 40f), h = Mathf.Min(680f, Screen.height - 80f);
 			Rect r = new Rect((Screen.width - w) / 2f, (Screen.height - h) / 2f, w, h);
@@ -606,7 +645,7 @@ namespace ScamArtistMod
 		private static void DrawLedger()
 		{
 			int now = Now;
-			bool canClick = Cursor.visible;
+			bool canClick = true;
 			bool repaint = Event.current.type == EventType.Repaint;
 
 			GUILayout.BeginHorizontal();
@@ -616,7 +655,7 @@ namespace ScamArtistMod
 				if (GUILayout.Button(Spaced(m.ToString()), Mode == m ? sTabOn : sTab)) Mode = m;
 			GUI.enabled = true;
 			GUILayout.EndHorizontal();
-			GUILayout.Label("Small is safer and pays less, Greedy is riskier and pays much more." + (canClick ? "" : " Open your inventory to use the buttons."), sHint);
+			GUILayout.Label("Small is safer and pays less, Greedy is riskier and pays much more.", sHint);
 			if (Save.lastCrimeAt >= now - Day) GUILayout.Label("<color=#e8c060>You committed a crime recently, so you're not laying low.</color>", sHint);
 
 			scroll = GUILayout.BeginScrollView(scroll);
@@ -653,7 +692,7 @@ namespace ScamArtistMod
 				foreach (Scam s in closed) Card(s, now, canClick, repaint);
 			}
 			GUILayout.EndScrollView();
-			GUILayout.Label("Press " + LedgerKey.Value + " to close.", sHint);
+			GUILayout.Label("Press Esc or " + LedgerKey.Value + " to close.", sHint);
 		}
 
 		// ---- Hooks ----
