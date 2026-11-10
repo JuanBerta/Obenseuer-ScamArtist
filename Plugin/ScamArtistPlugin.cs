@@ -622,8 +622,15 @@ namespace ScamArtistMod
 			scroll = GUILayout.BeginScrollView(scroll);
 			var mail = MailInTransit();
 			var scams = Save.Scams();
-			var open = scams.FindAll(x => x.Open);
-			var closed = scams.FindAll(x => !x.Open);
+			// Most recent first: by the latest letter (or when it was received), newest invoice first on ties.
+			Comparison<Scam> recent = (a, b) =>
+			{
+				int c = Mathf.Max(b.LetterAt, b.SentAt).CompareTo(Mathf.Max(a.LetterAt, a.SentAt));
+				return c != 0 ? c : b.Id.CompareTo(a.Id);
+			};
+			var open = scams.FindAll(x => x.Open); open.Sort(recent);
+			var closed = scams.FindAll(x => !x.Open); closed.Sort(recent);
+			mail.Reverse();   // the game keeps mail oldest first
 
 			GUILayout.Label(Spaced("In the mail") + "   (" + mail.Count + ")", sSection);
 			if (mail.Count == 0) GUILayout.Label("Nothing on its way. Make a Scam Invoice at the Paperwork station and mail it.", sHint);
@@ -637,13 +644,13 @@ namespace ScamArtistMod
 
 			GUILayout.Label(Spaced("Open scams") + "   (" + open.Count + ")", sSection);
 			if (open.Count == 0) GUILayout.Label("No open scams.", sHint);
-			for (int i = open.Count - 1; i >= 0; i--) Card(open[i], now, canClick, repaint);
+			foreach (Scam s in open) Card(s, now, canClick, repaint);
 
 			if (closed.Count > 0)
 			{
 				GUILayout.Label(Spaced("Closed") + "   (" + closed.Count + ")", sSection);
 				GUILayout.Label("Closed scams disappear when you close the ledger.", sHint);
-				for (int i = closed.Count - 1; i >= 0; i--) Card(closed[i], now, canClick, repaint);
+				foreach (Scam s in closed) Card(s, now, canClick, repaint);
 			}
 			GUILayout.EndScrollView();
 			GUILayout.Label("Press " + LedgerKey.Value + " to close.", sHint);
