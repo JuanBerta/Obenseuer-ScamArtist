@@ -154,22 +154,73 @@ namespace ScamArtistMod
 			maxPay = Mathf.Max(0.5f, Mathf.Round(maxPay * 100f) / 100f);
 		}
 
-		internal static Scam OpenDocs()
+		// Requests for documentation that still need a follow-up invoice, easiest first.
+		internal static List<Scam> DocsWaiting()
+		{
+			var list = new List<Scam>();
+			if (Save == null) return list;
+			foreach (Scam s in Save.Scams()) if (s.State == ScamState.Docs && !s.FollowUpSent) list.Add(s);
+			list.Sort((a, b) => a.Required.CompareTo(b.Required));
+			return list;
+		}
+
+		// A follow-up in the mail with this quality, if any.
+		internal static Scam FollowUpFor(float quality)
 		{
 			if (Save == null) return null;
-			foreach (Scam s in Save.Scams()) if (s.State == ScamState.Docs) return s;
+			foreach (Scam s in Save.Scams())
+				if (s.State == ScamState.Docs && s.FollowUpSent && Mathf.Abs(s.FollowUpQuality - quality) < 0.0005f) return s;
 			return null;
+		}
+
+		internal struct ScamUnit { public SlotController slot; public float quality; public ItemMailableData mailable; }
+
+		// Every scam invoice you carry, one entry per invoice.
+		internal static List<ScamUnit> CarriedInvoices()
+		{
+			var units = new List<ScamUnit>();
+			foreach (SlotController sc in Inventory.instance.GetAllSlotsWithItemWithMeta<ItemMailableData>())
+			{
+				if (sc == null || sc.itemStack == null) continue;
+				ItemMailableData md = sc.itemStack.GetMetaOfType<ItemMailableData>();
+				if (md == null || md.isPackage || md.mailName != "ScamInvoice") continue;
+				ItemQualityData q = sc.itemStack.GetMetaOfType<ItemQualityData>();
+				float quality = q != null ? q.quality : 0.5f;
+				for (int i = 0; i < Mathf.Max(1, sc.itemStack.itemAmount); i++) units.Add(new ScamUnit { slot = sc, quality = quality, mailable = md });
+			}
+			return units;
+		}
+
+		// Which invoice answers which request: for each request (easiest first), the weakest invoice that is
+		// good enough, so the best ones are kept for the hardest requests. Requests no invoice can meet are left out:
+		// a weak follow-up gets you reported, an unanswered request just closes.
+		internal static List<KeyValuePair<Scam, ScamUnit>> PlanFollowUps(List<ScamUnit> units)
+		{
+			var plan = new List<KeyValuePair<Scam, ScamUnit>>();
+			var pool = new List<ScamUnit>(units);
+			pool.Sort((a, b) => a.quality.CompareTo(b.quality));
+			foreach (Scam d in DocsWaiting())
+			{
+				int pick = pool.FindIndex(u => u.quality >= d.Required);
+				if (pick < 0) continue;
+				plan.Add(new KeyValuePair<Scam, ScamUnit>(d, pool[pick]));
+				pool.RemoveAt(pick);
+			}
+			return plan;
 		}
 
 		private static string SuspicionWord(int n) { return n <= 0 ? "none" : n == 1 ? "low" : n == 2 ? "medium" : "high"; }
 
 		internal static string OddsText(float quality)
 		{
-			Scam docs = OpenDocs();
-			if (docs != null)
+			var waiting = DocsWaiting();
+			if (waiting.Count > 0)
 			{
-				return "Scam Artist: goes as the follow-up to " + docs.Company + "\n" +
-				       (quality >= docs.Required ? "Good enough: they'll pay" : "Not good enough: needs quality " + docs.Required.ToString("0.00", CultureInfo.InvariantCulture) + " or they'll report you");
+				Scam best = null;
+				foreach (Scam d in waiting) if (quality >= d.Required) { best = d; break; }
+				string head = "Scam Artist: " + waiting.Count + " compan" + (waiting.Count > 1 ? "ies want" : "y wants") + " documentation\n";
+				if (best != null) return head + "Good enough as the follow-up to " + best.Company + " (needs " + best.Required.ToString("0.00", CultureInfo.InvariantCulture) + "). Follow-ups are mailed first; the rest of your invoices stay with you.";
+				return head + "Not good enough for any of them (easiest needs " + waiting[0].Required.ToString("0.00", CultureInfo.InvariantCulture) + ").";
 			}
 			Company c = Company.ForQuality(quality);
 			float chance, max;
@@ -221,7 +272,7 @@ namespace ScamArtistMod
 
 		private static void Send(float quality, string bank, int now, int replyIn)
 		{
-			Scam docs = OpenDocs();
+			Scam docs = FollowUpFor(quality);
 			if (docs != null)
 			{
 				if (quality >= docs.Required)
@@ -292,6 +343,7 @@ namespace ScamArtistMod
 						Resolve(s, now);
 						break;
 					case ScamState.Docs:
+						if (s.FollowUpSent) { s.DueAt = now + 60; break; }   // the follow-up is still in the mail
 						s.State = ScamState.Failed;
 						Letter(s, s.Company, "We never received the documentation we asked for. We consider the matter closed.");
 						break;
@@ -600,7 +652,9 @@ namespace ScamArtistMod
 					MailController.ItemMail im = kv.Key as MailController.ItemMail;
 					if (im == null || im.item == null || im.item.ID != 16010) continue;
 					ItemQualityData q = ItemMetaUtilities.GetMetaOfType<ItemQualityData>(im.meta);
-					string c = OpenDocs() != null ? OpenDocs().Company + " (follow-up)" : Company.ForQuality(q != null ? q.quality : 0.5f).Name;
+					float mq = q != null ? q.quality : 0.5f;
+					Scam fu = FollowUpFor(mq);
+					string c = fu != null ? fu.Company + " (follow-up)" : Company.ForQuality(mq).Name;
 					int n = Mathf.Max(1, im.amount);
 					for (int i = 0; i < n; i++) list.Add(new InMail { company = c, minutes = kv.Value != null ? kv.Value.remainingInSeconds / 60 : 0 });
 				}
@@ -709,6 +763,67 @@ namespace ScamArtistMod
 		[ThreadStatic] private static object[] tooltipMeta;
 		[ThreadStatic] private static int tooltipItem;
 
+		// While companies wait for documentation, a mailbox drop sends only the follow-ups (one good-enough invoice
+		// per request) plus any other mail; the other scam invoices stay in your inventory for the next drop.
+		// This is the game's Mailbox.InsertMail with that one change.
+		internal static bool SendFollowUpsFirst(Mailbox box)
+		{
+			if (!Skill.Enabled.Value || Save == null || box.mode != Mailbox.Mode.Send) return false;
+			var units = CarriedInvoices();
+			if (units.Count == 0) return false;
+			var plan = PlanFollowUps(units);
+			if (plan.Count == 0) return false;
+
+			TaskItemsManager.instance.RemoveAllMail();
+			var used = new Dictionary<SlotController, int>();
+			foreach (var kv in plan)
+			{
+				ScamUnit u = kv.Value;
+				var mail = new MailController.ItemMail
+				{
+					mailName = u.mailable.mailName,
+					item = new ItemReference(u.slot.itemStack.itemReference.Item),
+					meta = Item.CloneMeta(u.slot.itemStack.Meta),
+					amount = 1
+				};
+				if (u.mailable.targetNPC != null) mail.receiver = new NPC.NPCReference(u.mailable.targetNPC.ID);
+				MailController.instance.SendMail(mail, MailController.Target.World, u.mailable.useDelay ? MailController.instance.delay : null);
+				kv.Key.FollowUpSent = true;
+				kv.Key.FollowUpQuality = u.quality;
+				int c; used.TryGetValue(u.slot, out c); used[u.slot] = c + 1;
+			}
+			foreach (var kv in used)
+			{
+				SlotController sc = kv.Key;
+				if (sc.itemStack.itemAmount <= kv.Value) sc.RemoveItem();
+				else sc.itemStack.itemAmount -= kv.Value;
+			}
+			// Other (non-scam) mail goes as usual.
+			foreach (SlotController sc in Inventory.instance.GetAllSlotsWithItemWithMeta<ItemMailableData>())
+			{
+				if (sc == null || sc.itemStack == null) continue;
+				ItemMailableData md = sc.itemStack.GetMetaOfType<ItemMailableData>();
+				if (md == null) { sc.RemoveItem(); continue; }
+				if (md.isPackage || md.mailName == "ScamInvoice") continue;
+				var mail = new MailController.ItemMail
+				{
+					mailName = md.mailName,
+					item = new ItemReference(sc.itemStack.itemReference.Item),
+					meta = Item.CloneMeta(sc.itemStack.Meta),
+					amount = sc.itemStack.itemAmount
+				};
+				if (md.targetNPC != null) mail.receiver = new NPC.NPCReference(md.targetNPC.ID);
+				MailController.instance.SendMail(mail, MailController.Target.World, md.useDelay ? MailController.instance.delay : null);
+				sc.RemoveItem();
+			}
+			try { Traverse.Create(box).Field("onMailInserted").GetValue<Relay>()?.triggerOutputs(); } catch (Exception) { }
+			try { Inventory.instance.UpdateAllSlots(); } catch (Exception) { }
+			Save.Store();
+			int kept = units.Count - plan.Count;
+			SkillHost.Notify("Scam Artist", "Mailed " + plan.Count + " follow-up" + (plan.Count > 1 ? "s" : "") + "." + (kept > 0 ? " Your other " + kept + " scam invoice" + (kept > 1 ? "s stay" : " stays") + " with you: drop " + (kept > 1 ? "them" : "it") + " again to send as new scams." : ""));
+			return true;
+		}
+
 		internal static class Hooks
 		{
 			[HarmonyPatch(typeof(FakeInvoiceReceiver), "HandleMail")]
@@ -721,7 +836,12 @@ namespace ScamArtistMod
 
 			[HarmonyPatch(typeof(Mailbox), "InsertMail")]
 			[HarmonyPrefix]
-			private static void InsertMail_Prefix() { lastInsertAt = Now; }
+			private static bool InsertMail_Prefix(Mailbox __instance)
+			{
+				lastInsertAt = Now;
+				try { return !SendFollowUpsFirst(__instance); }
+				catch (Exception e) { SkillHost.LogWarning("Scam Artist mailbox: " + e.Message); return true; }
+			}
 
 			// Any crime ends laying low (except the mod's own fraud charge).
 			[HarmonyPatch(typeof(Crime), "CommitCrime", new Type[] { typeof(NPC.NPCReference), typeof(int), typeof(Crime.CrimeType), typeof(bool) })]
@@ -772,10 +892,15 @@ namespace ScamArtistMod
 						n += Mathf.Max(1, sc.itemStack.itemAmount);
 						float chance, max;
 						Odds(q.quality, Company.ForQuality(q.quality), Mode, out chance, out max);
-						if (OpenDocs() != null) chance = q.quality >= OpenDocs().Required ? 1f : 0f;
 						best = Mathf.Max(best, chance);
 					}
 					if (n == 0) return;
+					var plan = PlanFollowUps(CarriedInvoices());
+					if (plan.Count > 0)
+					{
+						UseText.instance.ChangeUseText(__instance.title, __instance.useMessage + "  \u00b7  " + plan.Count + " follow-up" + (plan.Count > 1 ? "s" : "") + " first, " + (n - plan.Count) + " invoice" + (n - plan.Count == 1 ? "" : "s") + " kept");
+						return;
+					}
 					UseText.instance.ChangeUseText(__instance.title, __instance.useMessage + "  ·  " + n + " scam" + (n > 1 ? "s" : "") + ", best chance " + Mathf.RoundToInt(best * 100f) + "%");
 				}
 				catch (Exception) { }

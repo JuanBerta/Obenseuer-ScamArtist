@@ -74,6 +74,8 @@ namespace ScamArtistMod
 		public int LetterAt;
 		public bool Unread;           // the latest letter hasn't been seen in the ledger yet
 		public bool Seen;             // closed and seen in the ledger: removed when the ledger closes
+		public bool FollowUpSent;     // a follow-up invoice for this request is in the mail
+		public float FollowUpQuality; // its quality, to recognise it when it arrives
 
 		private static string Esc(string v) { return (v ?? "").Replace(";", ",").Replace("|", "/"); }
 
@@ -87,7 +89,8 @@ namespace ScamArtistMod
 				Chance.ToString("0.####", Inv), MaxPay.ToString("0.##", Inv), (Bank ?? "").Replace(";", ","), SentAt.ToString(Inv),
 				DueAt.ToString(Inv), ((int)State).ToString(Inv), Required.ToString("0.####", Inv), Severity.ToString(Inv),
 				Reviewed ? "1" : "0", BribeTried ? "1" : "0", LayLowSince.ToString(Inv),
-				Esc(From), Esc(Letter), LetterAt.ToString(Inv), Unread ? "1" : "0", Seen ? "1" : "0"
+				Esc(From), Esc(Letter), LetterAt.ToString(Inv), Unread ? "1" : "0", Seen ? "1" : "0",
+				FollowUpSent ? "1" : "0", FollowUpQuality.ToString("0.####", Inv)
 			});
 		}
 
@@ -104,7 +107,8 @@ namespace ScamArtistMod
 					DueAt = int.Parse(p[8], Inv), State = (ScamState)int.Parse(p[9], Inv), Required = float.Parse(p[10], Inv),
 					Severity = int.Parse(p[11], Inv), Reviewed = p[12] == "1", BribeTried = p[13] == "1", LayLowSince = int.Parse(p[14], Inv),
 					From = p.Length > 15 ? p[15] : "", Letter = p.Length > 16 ? p[16] : "",
-					LetterAt = p.Length > 17 ? int.Parse(p[17], Inv) : 0, Unread = p.Length > 18 && p[18] == "1", Seen = p.Length > 19 && p[19] == "1"
+					LetterAt = p.Length > 17 ? int.Parse(p[17], Inv) : 0, Unread = p.Length > 18 && p[18] == "1", Seen = p.Length > 19 && p[19] == "1",
+					FollowUpSent = p.Length > 20 && p[20] == "1", FollowUpQuality = p.Length > 21 ? float.Parse(p[21], Inv) : 0f
 				};
 			}
 			catch (Exception) { return null; }
