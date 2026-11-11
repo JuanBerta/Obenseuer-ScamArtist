@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.3
+- The lawyer's fee for unfreezing an account is taken from that account, so you don't need the money on you. If the account can't cover it, you get the game's normal invoice. Setting: LawyerPaidFromAccount.
+
 ## 1.0.2
 - The lawyer unfreezes a frozen bank account right away instead of after a week (you still pay the invoice). Setting: InstantLawyerUnfreeze.
 - New option PayIntoFrozenAccount (off by default): scam payments go into a frozen account instead of bouncing, and stay there until it's unfrozen.

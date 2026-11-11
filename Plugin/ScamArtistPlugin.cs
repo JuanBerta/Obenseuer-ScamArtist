@@ -15,7 +15,7 @@ namespace ScamArtistMod
 	/// Scam Artist: a Fraud skill, and scam invoices that play out over days. The game's own scam listener
 	/// (FakeInvoiceReceiver, in every scene) still receives the mail; the mod replaces what happens next.
 	/// </summary>
-	[BepInPlugin("JuanBerta.Obenseuer.ScamArtist", "Scam Artist", "1.0.2")]
+	[BepInPlugin("JuanBerta.Obenseuer.ScamArtist", "Scam Artist", "1.0.3")]
 	public class ScamArtistPlugin : BaseUnityPlugin
 	{
 		internal static CustomSkill Skill;
@@ -48,6 +48,7 @@ namespace ScamArtistMod
 		internal static ConfigEntry<float> FreezeGrowthPer100Rm;
 		internal static ConfigEntry<bool> InstantLawyerUnfreeze;
 		internal static ConfigEntry<bool> PayIntoFrozenAccount;
+		internal static ConfigEntry<bool> LawyerPaidFromAccount;
 		internal static ConfigEntry<bool> ConArtist;
 		internal static ConfigEntry<int> ConArtistDays;
 
@@ -100,6 +101,7 @@ namespace ScamArtistMod
 			PayBackShare = cfg.Bind("Investigation", "PayBackShare", 0.5f, D("Settling (paying back) costs this share of what you tried to take, in RM.", 70, new AcceptableValueRange<float>(0f, 3f)));
 
 			InstantLawyerUnfreeze = cfg.Bind("Payout", "InstantLawyerUnfreeze", true, D("When you ask the lawyer to unfreeze a bank account, it's unfrozen right away instead of after the game's waiting time. You still get the lawyer's invoice.", 70));
+			LawyerPaidFromAccount = cfg.Bind("Payout", "LawyerPaidFromAccount", true, D("The lawyer's fee for unfreezing an account is taken from that account's balance, so you don't need the money on you. If the account can't cover it, you get the game's normal invoice.", 68));
 			PayIntoFrozenAccount = cfg.Bind("Payout", "PayIntoFrozenAccount", false, D("Scam payments still go into a frozen account (instead of bouncing). You can't take the money out until the account is unfrozen.", 65));
 			ConArtist = cfg.Bind("Perk", "ConArtist", true, D("Level 10 perk: once a week, a scam that would get you reported asks for more documentation instead.", 100));
 			ConArtistDays = cfg.Bind("Perk", "ConArtistDays", 7, D("In-game days between Con Artist saves.", 90, new AcceptableValueRange<int>(1, 30)));
@@ -845,6 +847,42 @@ namespace ScamArtistMod
 			{
 				try { return OnInvoiceMailed(__instance, mail); }
 				catch (Exception e) { SkillHost.LogWarning("Scam Artist mail: " + e.Message); return true; }
+			}
+
+			// The lawyer's "unfreeze account" service, paid from the frozen account itself when it can cover the fee.
+			// (The game's QueueAction, without the invoice.)
+			[HarmonyPatch(typeof(LegalServicesController), "QueueAction")]
+			[HarmonyPrefix]
+			private static bool QueueAction_Prefix(LegalServicesController __instance, string name)
+			{
+				try
+				{
+					if (!LawyerPaidFromAccount.Value || __instance.legalActions == null || __instance.actionQueue == null) return true;
+					LegalServicesController.LegalAction action = __instance.legalActions.Find(x => x.name == name);
+					if (action == null || action.type != LegalServicesController.LegalAction.ActionType.UnfreezeAccount || __instance.actionQueue.ContainsKey(name)) return true;
+					Money.BankAccountData acc = Money.instance.FindBankAccount(action.actionData);
+					if (acc == null) return true;
+					Money.money price = action.GetPrice();
+					float needRm = price.RM + price.OC * Money.instance.OCtoRM;
+					float haveRm = acc.RM + acc.OC * Money.instance.OCtoRM;
+					if (needRm > 0f && haveRm + 0.001f < needRm) return true;   // not enough in the account: the game's invoice
+					// RM first, then OC.
+					float fromRm = Mathf.Min(acc.RM, needRm);
+					acc.RM -= fromRm;
+					float rest = needRm - fromRm;
+					if (rest > 0f) acc.OC = Mathf.Max(0, acc.OC - Mathf.CeilToInt(rest / Money.instance.OCtoRM));
+					__instance.actionQueue.Add(name, action.Clone());
+					try { Achievements.instance.TriggerAchievement("BETTER_CALL_SAMUEL"); } catch (Exception) { }
+					if (!InstantLawyerUnfreeze.Value)
+						SkillHost.Notify("Legal services", "The lawyer's fee (" + price.GetPricestring() + ") was taken from your " + action.actionData + " account.");
+					else
+					{
+						__instance.actionQueue[name].TriggerAction();
+						SkillHost.Notify("Legal services", "Your " + action.actionData + " account is unfrozen. The lawyer's fee (" + price.GetPricestring() + ") was taken from it.");
+					}
+					return false;
+				}
+				catch (Exception e) { SkillHost.LogWarning("Lawyer fee: " + e.Message); return true; }
 			}
 
 			// The lawyer's "unfreeze account" service: do it now instead of waiting for the game's timer.
