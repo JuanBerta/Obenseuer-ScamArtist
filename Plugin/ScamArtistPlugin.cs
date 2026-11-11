@@ -15,7 +15,7 @@ namespace ScamArtistMod
 	/// Scam Artist: a Fraud skill, and scam invoices that play out over days. The game's own scam listener
 	/// (FakeInvoiceReceiver, in every scene) still receives the mail; the mod replaces what happens next.
 	/// </summary>
-	[BepInPlugin("JuanBerta.Obenseuer.ScamArtist", "Scam Artist", "1.0.1")]
+	[BepInPlugin("JuanBerta.Obenseuer.ScamArtist", "Scam Artist", "1.0.2")]
 	public class ScamArtistPlugin : BaseUnityPlugin
 	{
 		internal static CustomSkill Skill;
@@ -46,6 +46,8 @@ namespace ScamArtistMod
 		internal static ConfigEntry<float> PayBackShare;
 		internal static ConfigEntry<float> BaseFreezeChance;
 		internal static ConfigEntry<float> FreezeGrowthPer100Rm;
+		internal static ConfigEntry<bool> InstantLawyerUnfreeze;
+		internal static ConfigEntry<bool> PayIntoFrozenAccount;
 		internal static ConfigEntry<bool> ConArtist;
 		internal static ConfigEntry<int> ConArtistDays;
 
@@ -97,6 +99,8 @@ namespace ScamArtistMod
 			BribeCostPerSeverity = cfg.Bind("Investigation", "BribeCostPerSeverity", 2f, D("OC a bribe costs per point of the charge's severity. Uses the game's Bribery skill.", 80, new AcceptableValueRange<float>(0f, 50f)));
 			PayBackShare = cfg.Bind("Investigation", "PayBackShare", 0.5f, D("Settling (paying back) costs this share of what you tried to take, in RM.", 70, new AcceptableValueRange<float>(0f, 3f)));
 
+			InstantLawyerUnfreeze = cfg.Bind("Payout", "InstantLawyerUnfreeze", true, D("When you ask the lawyer to unfreeze a bank account, it's unfrozen right away instead of after the game's waiting time. You still get the lawyer's invoice.", 70));
+			PayIntoFrozenAccount = cfg.Bind("Payout", "PayIntoFrozenAccount", false, D("Scam payments still go into a frozen account (instead of bouncing). You can't take the money out until the account is unfrozen.", 65));
 			ConArtist = cfg.Bind("Perk", "ConArtist", true, D("Level 10 perk: once a week, a scam that would get you reported asks for more documentation instead.", 100));
 			ConArtistDays = cfg.Bind("Perk", "ConArtistDays", 7, D("In-game days between Con Artist saves.", 90, new AcceptableValueRange<int>(1, 30)));
 		}
@@ -440,6 +444,15 @@ namespace ScamArtistMod
 			else
 			{
 				Money.BankAccountData acc = Money.instance.FindBankAccount(s.Bank);
+				if (acc != null && acc.Frozen && PayIntoFrozenAccount.Value)
+				{
+					acc.RM += amount;
+					Save.bankMoved += amount;
+					s.State = ScamState.Paid;
+					Letter(s, s.Company, "Payment processed: " + paid + " to your " + s.Bank + " account. The account is frozen: the money stays there until it's unfrozen.");
+					Skill.AddXp(XpPerSuccess.Value * Mathf.Clamp(1.5f - s.Chance, 0.5f, 1.5f) * DrunkXp, "scam paid");
+					return;
+				}
 				if (acc != null && acc.Frozen)
 				{
 					s.State = ScamState.Failed;
@@ -832,6 +845,22 @@ namespace ScamArtistMod
 			{
 				try { return OnInvoiceMailed(__instance, mail); }
 				catch (Exception e) { SkillHost.LogWarning("Scam Artist mail: " + e.Message); return true; }
+			}
+
+			// The lawyer's "unfreeze account" service: do it now instead of waiting for the game's timer.
+			[HarmonyPatch(typeof(LegalServicesController), "QueueAction")]
+			[HarmonyPostfix]
+			private static void QueueAction_Postfix(LegalServicesController __instance, string name)
+			{
+				try
+				{
+					if (!InstantLawyerUnfreeze.Value || __instance.actionQueue == null) return;
+					LegalServicesController.LegalAction a;
+					if (!__instance.actionQueue.TryGetValue(name, out a) || a == null || a.type != LegalServicesController.LegalAction.ActionType.UnfreezeAccount) return;
+					a.TriggerAction();   // unfreezes and takes it off the queue
+					SkillHost.Notify("Legal services", "Your lawyer got your " + a.actionData + " account unfrozen right away.");
+				}
+				catch (Exception e) { SkillHost.LogWarning("Lawyer unfreeze: " + e.Message); }
 			}
 
 			[HarmonyPatch(typeof(Mailbox), "InsertMail")]
