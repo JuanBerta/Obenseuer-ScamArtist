@@ -5,7 +5,8 @@ Better scam invoices for Obenseuer, and a new **Fraud** skill.
 In the base game a scam invoice is pure luck: it passes or not on one roll, pays anything from 0 RM, and a failure is an instant crime with no explanation. Scam Artist turns it into a small con game that plays out over a few in-game days.
 
 ## Features
-- **A Fraud skill on the Character tab.** It looks like the game's own skills, starts unlearned, and raises your odds (+3% per level) and payouts (+5% per level). You get XP when a scam pays (more for long shots) and a little when one fails.
+- **A Fraud skill on the Character tab.** It looks like the game's own skills, starts unlearned, and raises your odds (+3% per level) and payouts (+5% per level).
+- **Learn from every scam.** Scams that pay give XP (more for long shots), and failed scams give XP too. Scamming drunk gives up to +100% XP, whether the scam pays or fails (but your odds drop).
 - **Know your odds.** The invoice's tooltip shows who it's addressed to, the chance it passes, the payout range, how suspicious that company is and your risk mode. Looking at a mailbox shows your best chance.
 - **Fairer payouts.** Quality sets a range (40-100% of the maximum) instead of a 0-to-max lottery. Big companies pay more but check harder.
 - **Pick your risk.** In the scam ledger, choose Small (safer, smaller), Normal or Greedy (riskier, much bigger) for the next invoices.

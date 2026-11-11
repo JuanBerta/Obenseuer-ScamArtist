@@ -9,7 +9,8 @@ In the base game a scam invoice is pure luck: it passes or not on one roll, pays
 
 [size=4][b]Features[/b][/size]
 [list]
-[*][b]A Fraud skill on the Character tab.[/b] It looks like the game's own skills, starts unlearned, and raises your odds (+3% per level) and payouts (+5% per level). Scams that pay give XP (more for long shots), failures give a little.
+[*][b]A Fraud skill on the Character tab.[/b] It looks like the game's own skills, starts unlearned, and raises your odds (+3% per level) and payouts (+5% per level).
+[*][b]Learn from every scam.[/b] Scams that pay give XP (more for long shots), and failed scams give XP too: you learn from your mistakes. Scamming drunk gives up to +100% XP, whether the scam pays or fails (but your odds drop).
 [*][b]Know your odds.[/b] The invoice's tooltip shows who it's addressed to, the chance it passes, the payout range, how suspicious that company is and your risk mode. Looking at a mailbox shows your best chance.
 [*][b]Fairer payouts.[/b] Quality sets a range (40-100% of the maximum) instead of a 0-to-max lottery. Big companies pay more but check harder.
 [*][b]Pick your risk:[/b] Small (safer, smaller), Normal or Greedy (riskier, much bigger).
