@@ -21,7 +21,7 @@ In the base game a scam invoice is pure luck: it passes or not on one roll, pays
   - **settle** by paying back part of what you tried to take,
   - or **lay low**: commit no crimes and it may be dropped for lack of evidence.
 - **Suspicion.** Every scam on the same company lowers your odds there for a week, so spread them out.
-- **Bank freezes.** The more your scams move through the bank account, the likelier it gets frozen. The lawyer unfreezes it right away (instead of after a week), and takes the fee from the account itself, so you don't need the money on you. Optionally, payments can still go into a frozen account and wait there until it's unfrozen.
+- **Bank freezes.** The more your scams move through the bank account, the likelier it gets frozen. The lawyer always picks up, unfreezes it right away (instead of after a week), and takes the fee from the account itself, so you don't need the money on you. Optionally, payments can still go into a frozen account and wait there until it's unfrozen.
 - **Level 10 perk, Con Artist:** once a week, a scam that would get you reported asks for more documentation instead.
 - **Scam ledger (F7):** a window in the game's own style with your scams grouped by stage, filter tabs for each stage and sorting (newest, due soonest, biggest payout), each with its latest letter and the investigation buttons. It frees the mouse and pauses the game's controls while open; Esc or F7 closes it. Closed scams disappear once you've read them.
 - Everything is saved with your save game and belongs to that character only.

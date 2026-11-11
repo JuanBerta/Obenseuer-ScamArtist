@@ -15,7 +15,7 @@ namespace ScamArtistMod
 	/// Scam Artist: a Fraud skill, and scam invoices that play out over days. The game's own scam listener
 	/// (FakeInvoiceReceiver, in every scene) still receives the mail; the mod replaces what happens next.
 	/// </summary>
-	[BepInPlugin("JuanBerta.Obenseuer.ScamArtist", "Scam Artist", "1.0.4")]
+	[BepInPlugin("JuanBerta.Obenseuer.ScamArtist", "Scam Artist", "1.0.5")]
 	public class ScamArtistPlugin : BaseUnityPlugin
 	{
 		internal static CustomSkill Skill;
@@ -49,6 +49,7 @@ namespace ScamArtistMod
 		internal static ConfigEntry<bool> InstantLawyerUnfreeze;
 		internal static ConfigEntry<bool> PayIntoFrozenAccount;
 		internal static ConfigEntry<bool> LawyerPaidFromAccount;
+		internal static ConfigEntry<bool> LawyerAlwaysAnswers;
 		internal static ConfigEntry<bool> ConArtist;
 		internal static ConfigEntry<int> ConArtistDays;
 
@@ -101,6 +102,7 @@ namespace ScamArtistMod
 			PayBackShare = cfg.Bind("Investigation", "PayBackShare", 0.5f, D("Settling (paying back) costs this share of what you tried to take, in RM.", 70, new AcceptableValueRange<float>(0f, 3f)));
 
 			InstantLawyerUnfreeze = cfg.Bind("Payout", "InstantLawyerUnfreeze", true, D("When you ask the lawyer to unfreeze a bank account, it's unfrozen right away instead of after the game's waiting time. You still get the lawyer's invoice.", 70));
+			LawyerAlwaysAnswers = cfg.Bind("Payout", "LawyerAlwaysAnswers", true, D("The lawyer (Samuel Godman, 030-112-112) always picks up. In the game every number only answers some of the time, so his line often seems busy.", 69));
 			LawyerPaidFromAccount = cfg.Bind("Payout", "LawyerPaidFromAccount", true, D("The lawyer's fee for unfreezing an account is taken from that account's balance, so you don't need the money on you. If the account can't cover it, you get the game's normal invoice.", 68));
 			PayIntoFrozenAccount = cfg.Bind("Payout", "PayIntoFrozenAccount", false, D("Scam payments still go into a frozen account (instead of bouncing). You can't take the money out until the account is unfrozen.", 65));
 			ConArtist = cfg.Bind("Perk", "ConArtist", true, D("Level 10 perk: once a week, a scam that would get you reported asks for more documentation instead.", 100));
@@ -939,6 +941,21 @@ namespace ScamArtistMod
 					SkillHost.Notify("Legal services", "Your lawyer got your " + a.actionData + " account unfrozen right away.");
 				}
 				catch (Exception e) { SkillHost.LogWarning("Lawyer unfreeze: " + e.Message); }
+			}
+
+			// Phone calls: the game rolls each number's answer chance. Let the lawyer always answer.
+			[HarmonyPatch(typeof(PhoneNumberDatabase), "CallNumber")]
+			[HarmonyPostfix]
+			private static void CallNumber_Postfix(PhoneNumberDatabase __instance, List<int> number, PhoneNumber.Network network, List<PhoneNumber> additionalNumbers, ref PhoneNumber __result)
+			{
+				try
+				{
+					if (!LawyerAlwaysAnswers.Value || __result == null || __result != __instance.notAnswering) return;
+					PhoneNumber real = (additionalNumbers != null ? __instance.FindNumber(number, additionalNumbers) : null) ?? __instance.FindNumber(number, network);
+					if (real != null && !string.IsNullOrEmpty(real.conversation) && real.conversation.IndexOf("Samuel Godman", StringComparison.OrdinalIgnoreCase) >= 0)
+						__result = real;
+				}
+				catch (Exception) { }
 			}
 
 			[HarmonyPatch(typeof(Mailbox), "InsertMail")]

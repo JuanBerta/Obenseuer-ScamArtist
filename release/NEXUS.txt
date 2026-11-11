@@ -24,7 +24,7 @@ In the base game a scam invoice is pure luck: it passes or not on one roll, pays
 [*][b]Follow-ups first.[/b] While companies wait for documentation, a mailbox drop sends only the follow-ups, one good-enough invoice per request, and keeps your other invoices for the next drop. You're never reported for a weak follow-up.
 [*][b]Investigations.[/b] No instant crime: you get a few days to [b]bribe[/b] it away (uses the game's Bribery skill), [b]settle[/b] by paying back part, or [b]lay low[/b] and hope it's dropped.
 [*][b]Suspicion[/b]: every scam on the same company lowers your odds there for a week.
-[*][b]Bank freezes[/b]: the more your scams move through the account, the likelier it gets frozen. The lawyer unfreezes it [b]right away[/b] instead of after a week and takes the fee from the account itself (no cash needed), and optionally payments can still go into a frozen account and wait there until it's unfrozen.
+[*][b]Bank freezes[/b]: the more your scams move through the account, the likelier it gets frozen. The lawyer [b]always picks up[/b], unfreezes it [b]right away[/b] instead of after a week and takes the fee from the account itself (no cash needed), and optionally payments can still go into a frozen account and wait there until it's unfrozen.
 [*][b]Level 10 perk: Con Artist.[/b] Once a week, a scam that would get you reported asks for documentation instead.
 [*][b]Scam ledger (F7)[/b]: a window in the game's own style with your scams grouped by stage, [b]filter tabs[/b] for each stage and [b]sorting[/b] (newest, due soonest, biggest payout), each with its latest letter. It frees the mouse and pauses the game's controls while open; Esc or F7 closes it.
 [*]Everything is saved with your save game and belongs to that character only.
