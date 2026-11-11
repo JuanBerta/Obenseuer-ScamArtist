@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4
+- Scam ledger: filter tabs for each stage (All, Mail, Waiting, Docs, Reported, Closed) with counts, and sorting (newest first, due soonest, biggest payout). Scams are grouped by stage: reported first, then documentation requests, then those waiting for an answer.
+- Invoice tooltip: always shows the invoice's own odds and payout; when companies want documentation, an extra line says whether this invoice is good enough as a follow-up or goes as a new scam.
+
 ## 1.0.3
 - The lawyer's fee for unfreezing an account is taken from that account, so you don't need the money on you. If the account can't cover it, you get the game's normal invoice. Setting: LawyerPaidFromAccount.
 

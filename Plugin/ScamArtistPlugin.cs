@@ -15,7 +15,7 @@ namespace ScamArtistMod
 	/// Scam Artist: a Fraud skill, and scam invoices that play out over days. The game's own scam listener
 	/// (FakeInvoiceReceiver, in every scene) still receives the mail; the mod replaces what happens next.
 	/// </summary>
-	[BepInPlugin("JuanBerta.Obenseuer.ScamArtist", "Scam Artist", "1.0.3")]
+	[BepInPlugin("JuanBerta.Obenseuer.ScamArtist", "Scam Artist", "1.0.4")]
 	public class ScamArtistPlugin : BaseUnityPlugin
 	{
 		internal static CustomSkill Skill;
@@ -219,14 +219,15 @@ namespace ScamArtistMod
 
 		internal static string OddsText(float quality)
 		{
+			string docs = "";
 			var waiting = DocsWaiting();
 			if (waiting.Count > 0)
 			{
 				Scam best = null;
 				foreach (Scam d in waiting) if (quality >= d.Required) { best = d; break; }
-				string head = "Scam Artist: " + waiting.Count + " compan" + (waiting.Count > 1 ? "ies want" : "y wants") + " documentation\n";
-				if (best != null) return head + "Good enough as the follow-up to " + best.Company + " (needs " + best.Required.ToString("0.00", CultureInfo.InvariantCulture) + "). Follow-ups are mailed first; the rest of your invoices stay with you.";
-				return head + "Not good enough for any of them (easiest needs " + waiting[0].Required.ToString("0.00", CultureInfo.InvariantCulture) + ").";
+				docs = "\n" + waiting.Count + " compan" + (waiting.Count > 1 ? "ies want" : "y wants") + " documentation: " +
+				       (best != null ? "good enough as the follow-up to " + best.Company + " (needs " + best.Required.ToString("0.00", CultureInfo.InvariantCulture) + ")"
+				                     : "not good enough for any of them (easiest needs " + waiting[0].Required.ToString("0.00", CultureInfo.InvariantCulture) + "), so it goes as a new scam") + ".";
 			}
 			Company c = Company.ForQuality(quality);
 			float chance, max;
@@ -236,7 +237,7 @@ namespace ScamArtistMod
 			       "Chance: " + Mathf.RoundToInt(chance * 100f) + "%\n" +
 			       "Payout: " + lo.ToString("0.#", CultureInfo.InvariantCulture) + "–" + max.ToString("0.#", CultureInfo.InvariantCulture) + " RM\n" +
 			       "Suspicion: " + SuspicionWord(SuspicionOf(c.Name)) + "\n" +
-			       "Risk: " + Mode + " (change it in the ledger, " + LedgerKey.Value + ")";
+			       "Risk: " + Mode + " (change it in the ledger, " + LedgerKey.Value + ")" + docs;
 		}
 
 		private static string CardNote()
@@ -720,6 +721,25 @@ namespace ScamArtistMod
 			if (repaint) { s.Unread = false; if (!s.Open) s.Seen = true; }
 		}
 
+		private static int filter, sortMode;
+
+		private static void FilterTab(int id, string label, int count)
+		{
+			if (GUILayout.Button(label.ToUpperInvariant() + " " + count, filter == id ? sTabOn : sTab)) { filter = id; scroll = Vector2.zero; }
+		}
+
+		private static void SortTab(int id, string label)
+		{
+			if (GUILayout.Button(label.ToUpperInvariant(), sortMode == id ? sTabOn : sTab)) { sortMode = id; scroll = Vector2.zero; }
+		}
+
+		private static void Section(string title, string empty, List<Scam> list, int now, bool canClick, bool repaint)
+		{
+			GUILayout.Label(Spaced(title) + "   (" + list.Count + ")", sSection);
+			if (list.Count == 0) GUILayout.Label(empty, sHint);
+			foreach (Scam sc in list) Card(sc, now, canClick, repaint);
+		}
+
 		private static void DrawLedger()
 		{
 			int now = Now;
@@ -736,38 +756,58 @@ namespace ScamArtistMod
 			GUILayout.Label("Small is safer and pays less, Greedy is riskier and pays much more.", sHint);
 			if (Save.lastCrimeAt >= now - Day) GUILayout.Label("<color=#e8c060>You committed a crime recently, so you're not laying low.</color>", sHint);
 
-			scroll = GUILayout.BeginScrollView(scroll);
 			var mail = MailInTransit();
 			var scams = Save.Scams();
-			// Most recent first: by the latest letter (or when it was received), newest invoice first on ties.
-			Comparison<Scam> recent = (a, b) =>
-			{
-				int c = Mathf.Max(b.LetterAt, b.SentAt).CompareTo(Mathf.Max(a.LetterAt, a.SentAt));
-				return c != 0 ? c : b.Id.CompareTo(a.Id);
-			};
-			var open = scams.FindAll(x => x.Open); open.Sort(recent);
-			var closed = scams.FindAll(x => !x.Open); closed.Sort(recent);
-			mail.Reverse();   // the game keeps mail oldest first
+			var waitingList = scams.FindAll(x => x.State == ScamState.Pending || x.State == ScamState.Review);
+			var docsList = scams.FindAll(x => x.State == ScamState.Docs);
+			var invList = scams.FindAll(x => x.State == ScamState.Investigation);
+			var closed = scams.FindAll(x => !x.Open);
 
-			GUILayout.Label(Spaced("In the mail") + "   (" + mail.Count + ")", sSection);
-			if (mail.Count == 0) GUILayout.Label("Nothing on its way. Make a Scam Invoice at the Paperwork station and mail it.", sHint);
-			foreach (InMail m in mail)
+			// Filter tabs, one per stage, with counts.
+			GUILayout.BeginHorizontal();
+			FilterTab(0, "All", mail.Count + scams.Count);
+			FilterTab(1, "Mail", mail.Count);
+			FilterTab(2, "Waiting", waitingList.Count);
+			FilterTab(3, "Docs", docsList.Count);
+			FilterTab(4, "Reported", invList.Count);
+			FilterTab(5, "Closed", closed.Count);
+			GUILayout.EndHorizontal();
+			GUILayout.BeginHorizontal();
+			GUILayout.Label("Sort:", sHint, GUILayout.Width(40));
+			SortTab(0, "Newest first");
+			SortTab(1, "Due soonest");
+			SortTab(2, "Biggest payout");
+			GUILayout.EndHorizontal();
+
+			Comparison<Scam> order;
+			if (sortMode == 1) order = (x, y) => { int c = x.DueAt.CompareTo(y.DueAt); return c != 0 ? c : y.Id.CompareTo(x.Id); };
+			else if (sortMode == 2) order = (x, y) => { int c = y.MaxPay.CompareTo(x.MaxPay); return c != 0 ? c : y.Id.CompareTo(x.Id); };
+			else order = (x, y) => { int c = Mathf.Max(y.LetterAt, y.SentAt).CompareTo(Mathf.Max(x.LetterAt, x.SentAt)); return c != 0 ? c : y.Id.CompareTo(x.Id); };
+			Comparison<Scam> newest = (x, y) => { int c = Mathf.Max(y.LetterAt, y.SentAt).CompareTo(Mathf.Max(x.LetterAt, x.SentAt)); return c != 0 ? c : y.Id.CompareTo(x.Id); };
+			waitingList.Sort(order); docsList.Sort(order); invList.Sort(order); closed.Sort(sortMode == 2 ? order : newest);
+			if (sortMode == 1) mail.Sort((x, y) => x.minutes.CompareTo(y.minutes)); else mail.Reverse();   // the game keeps mail oldest first
+
+			scroll = GUILayout.BeginScrollView(scroll);
+			if (filter == 0 || filter == 1)
 			{
-				GUILayout.BeginVertical(sCard);
-				GUILayout.Label("<b>" + m.company + "</b>", sCardHead);
-				GUILayout.Label("On its way: arrives in " + When(m.minutes), sCardText);
-				GUILayout.EndVertical();
+				GUILayout.Label(Spaced("In the mail") + "   (" + mail.Count + ")", sSection);
+				if (mail.Count == 0) GUILayout.Label("Nothing on its way. Make a Scam Invoice at the Paperwork station and mail it.", sHint);
+				foreach (InMail m in mail)
+				{
+					GUILayout.BeginVertical(sCard);
+					GUILayout.Label("<b>" + m.company + "</b>", sCardHead);
+					GUILayout.Label("On its way: arrives in " + When(m.minutes), sCardText);
+					GUILayout.EndVertical();
+				}
 			}
-
-			GUILayout.Label(Spaced("Open scams") + "   (" + open.Count + ")", sSection);
-			if (open.Count == 0) GUILayout.Label("No open scams.", sHint);
-			foreach (Scam s in open) Card(s, now, canClick, repaint);
-
-			if (closed.Count > 0)
+			if (filter == 0 || filter == 4) Section("Reported", "No investigations. Keep it that way.", invList, now, canClick, repaint);
+			if (filter == 0 || filter == 3) Section("Needs documentation", "No company is waiting for documentation.", docsList, now, canClick, repaint);
+			if (filter == 0 || filter == 2) Section("Waiting for an answer", "No scams waiting for an answer.", waitingList, now, canClick, repaint);
+			if ((filter == 0 && closed.Count > 0) || filter == 5)
 			{
 				GUILayout.Label(Spaced("Closed") + "   (" + closed.Count + ")", sSection);
-				GUILayout.Label("Closed scams disappear when you close the ledger.", sHint);
-				foreach (Scam s in closed) Card(s, now, canClick, repaint);
+				GUILayout.Label(closed.Count > 0 ? "Closed scams disappear when you close the ledger." : "No closed scams.", sHint);
+				foreach (Scam sc in closed) Card(sc, now, canClick, repaint);
 			}
 			GUILayout.EndScrollView();
 			GUILayout.Label("Press Esc or " + LedgerKey.Value + " to close.", sHint);
