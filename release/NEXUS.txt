@@ -1,0 +1,50 @@
+=== SHORT DESCRIPTION ===
+Scam invoices that play out over days, and a new Fraud skill. See your odds and payout on every invoice, read the companies' replies in a scam ledger, send follow-ups, and bribe, settle or lay low when you're reported.
+
+=== FULL DESCRIPTION (BBCode) ===
+[size=5][b]Scam Artist[/b][/size]
+Better scam invoices for Obenseuer, and a new [b]Fraud[/b] skill.
+
+In the base game a scam invoice is pure luck: it passes or not on one roll, pays anything from 0 RM, and a failure is an instant crime with no explanation. Scam Artist turns it into a small con game that plays out over a few in-game days.
+
+[size=4][b]Features[/b][/size]
+[list]
+[*][b]A Fraud skill on the Character tab.[/b] It looks like the game's own skills, starts unlearned, and raises your odds (+3% per level) and payouts (+5% per level). Scams that pay give XP (more for long shots), failures give a little.
+[*][b]Know your odds.[/b] The invoice's tooltip shows who it's addressed to, the chance it passes, the payout range, how suspicious that company is and your risk mode. Looking at a mailbox shows your best chance.
+[*][b]Fairer payouts.[/b] Quality sets a range (40-100% of the maximum) instead of a 0-to-max lottery. Big companies pay more but check harder.
+[*][b]Pick your risk:[/b] Small (safer, smaller), Normal or Greedy (riskier, much bigger).
+[*][b]It plays out like real mail.[/b] An invoice first travels by mail like in the base game. When it arrives, the company writes back to your scam ledger:
+[list]
+[*][i]Payment processed[/i]: the money goes to your Stalburg Bank account.
+[*][i]Under review[/i]: one more day of waiting.
+[*][i]Missing documentation[/i]: send a better invoice within 3 days and they pay.
+[*][i]Reported[/i]: an investigation starts.
+[/list]
+[*][b]Follow-ups first.[/b] While companies wait for documentation, a mailbox drop sends only the follow-ups, one good-enough invoice per request, and keeps your other invoices for the next drop. You're never reported for a weak follow-up.
+[*][b]Investigations.[/b] No instant crime: you get a few days to [b]bribe[/b] it away (uses the game's Bribery skill), [b]settle[/b] by paying back part, or [b]lay low[/b] and hope it's dropped.
+[*][b]Suspicion[/b]: every scam on the same company lowers your odds there for a week.
+[*][b]Bank freezes[/b]: the more your scams move through the account, the likelier it gets frozen.
+[*][b]Level 10 perk: Con Artist.[/b] Once a week, a scam that would get you reported asks for documentation instead.
+[*][b]Scam ledger (F7)[/b]: a window in the game's own style with your scams in the mail, open and closed, newest first, each with its latest letter. It frees the mouse and pauses the game's controls while open; Esc or F7 closes it.
+[*]Everything is saved with your save game and belongs to that character only.
+[/list]
+Every number can be changed in the config file or with ConfigurationManager.
+
+[size=4][b]Requirements[/b][/size]
+[list]
+[*]BepInEx 6 (Unity.Mono, x64)
+[/list]
+
+[size=4][b]Installation[/b][/size]
+Extract the archive into the game folder (the one with Obenseuer.exe), so the DLL ends up in [i]BepInEx\plugins\Obenseuer-ScamArtist\[/i].
+
+[size=4][b]Works well with[/b][/size]
+[list]
+[*][b]Bribery+[/b]: levels the Bribery skill that makes bribes work.
+[*][b]Stealth[/b], [b]Haggling[/b], [b]Scavenger[/b] and [b]Loot Map[/b].
+[/list]
+
+[size=4][b]Source[/b][/size]
+https://github.com/JuanBerta/Obenseuer-ScamArtist
+
+Made by JuanBerta, with AI assistance (Claude).
