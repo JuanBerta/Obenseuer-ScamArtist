@@ -15,7 +15,7 @@ namespace ScamArtistMod
 	/// Scam Artist: a Fraud skill, and scam invoices that play out over days. The game's own scam listener
 	/// (FakeInvoiceReceiver, in every scene) still receives the mail; the mod replaces what happens next.
 	/// </summary>
-	[BepInPlugin("JuanBerta.Obenseuer.ScamArtist", "Scam Artist", "1.0.0")]
+	[BepInPlugin("JuanBerta.Obenseuer.ScamArtist", "Scam Artist", "1.0.1")]
 	public class ScamArtistPlugin : BaseUnityPlugin
 	{
 		internal static CustomSkill Skill;
@@ -71,8 +71,8 @@ namespace ScamArtistMod
 			ShowAtMailbox = cfg.Bind("General", "ShowOddsAtMailbox", true, D("Show your best odds when you look at a mailbox with scam invoices on you.", 80));
 
 			XpPerSuccess = cfg.Bind("Skill", "XpPerSuccess", 25f, D("XP for a scam that pays. Long shots give up to 1.5 times this.", 90, new AcceptableValueRange<float>(0f, 500f)));
-			XpPerFailure = cfg.Bind("Skill", "XpPerFailure", 6f, D("XP for a scam that fails (you still learn something).", 85, new AcceptableValueRange<float>(0f, 200f)));
-			MaxDrunkXpBonus = cfg.Bind("State", "MaxDrunkXpBonus", 1f, D("Extra XP for scams sent drunk, scaled by alcohol in blood (1 = up to +100%).", 90, new AcceptableValueRange<float>(0f, 3f)));
+			XpPerFailure = cfg.Bind("Skill", "XpPerFailedScam", 15f, D("XP for a scam that fails: you learn from your mistakes. The drunk bonus applies too.", 85, new AcceptableValueRange<float>(0f, 200f)));
+			MaxDrunkXpBonus = cfg.Bind("State", "MaxDrunkXpBonus", 1f, D("Extra XP while drunk, scaled by alcohol in blood (1 = up to +100%), for scams that pay and scams that fail.", 90, new AcceptableValueRange<float>(0f, 3f)));
 			DrunkPenalty = cfg.Bind("State", "DrunkPenalty", 0.4f, D("How much lower your odds are for an invoice mailed completely drunk (0.4 = 40% lower). The Drinking skill shrinks it.", 85, new AcceptableValueRange<float>(0f, 1f)));
 
 			ChancePerLevel = cfg.Bind("Odds", "ChancePerLevel", 0.03f, D("Added to the chance of success per Fraud level.", 100, new AcceptableValueRange<float>(0f, 0.1f)));
@@ -372,7 +372,7 @@ namespace ScamArtistMod
 				Letter(s, s.Company, "Your invoice is under review. You will hear from us shortly.");
 				return;
 			}
-			Skill.AddXp(XpPerFailure.Value, "scam failed");
+			Skill.AddXp(XpPerFailure.Value * DrunkXp, DrunkXp > 1.01f ? "scam failed, drunk +" + Mathf.RoundToInt((DrunkXp - 1f) * 100f) + "%" : "scam failed");
 			if (UnityEngine.Random.value < DocsChance.Value + 0.02f * Skill.Level)
 			{
 				AskForDocs(s, now, "We are missing documentation for your invoice. Please send a corrected copy within " + DocsDays.Value + " days.");
@@ -413,7 +413,7 @@ namespace ScamArtistMod
 			{
 				s.State = ScamState.Dropped;
 				Letter(s, "the Militia", "The investigation into the " + s.Company + " invoice was dropped for lack of evidence.");
-				Skill.AddXp(XpPerFailure.Value * 1.5f, "laid low");
+				Skill.AddXp(XpPerFailure.Value * 1.5f * DrunkXp, "laid low");
 				return;
 			}
 			s.State = ScamState.Charged;
