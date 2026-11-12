@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.6
+- A frozen bank account is unfrozen on its own after AutoUnfreezeDays (default 7) in-game days, when the bank closes its review. The scam ledger shows the countdown. 0 = off.
+- Shipped as part of Skills Pack; this mod is no longer released on its own.
+
 ## 1.0.5
 - The lawyer (030-112-112) always answers the phone. In the game every number only picks up some of the time, so his line often seemed busy. Setting: LawyerAlwaysAnswers.
 

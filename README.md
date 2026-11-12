@@ -1,3 +1,5 @@
+> **This mod now ships inside [Skills Pack](https://github.com/JuanBerta/Obenseuer-SkillsPack).** The code here is kept for history; new releases go to the pack.
+
 # Scam Artist
 
 Better scam invoices for Obenseuer, and a new **Fraud** skill.

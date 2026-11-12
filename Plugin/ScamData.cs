@@ -130,6 +130,7 @@ namespace ScamArtistMod
 		public int lastCrimeAt = -100000;
 		public int nextId = 1;
 		public int mode = 1;
+		public string frozenSince = "";  // "Bank@clock|..." when each account was first seen frozen
 
 		[NonSerialized] private List<Scam> list;
 		[NonSerialized] private string listFrom;
@@ -215,10 +216,43 @@ namespace ScamArtistMod
 			sends = (string.IsNullOrEmpty(sends) ? "" : sends + "|") + company + "@" + now.ToString(CultureInfo.InvariantCulture);
 		}
 
+		internal int FrozenSince(string bank)
+		{
+			foreach (string p in (frozenSince ?? "").Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries))
+			{
+				int at = p.LastIndexOf('@');
+				int t;
+				if (at > 0 && p.Substring(0, at) == bank && int.TryParse(p.Substring(at + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out t)) return t;
+			}
+			return int.MinValue;
+		}
+
+		internal void SetFrozenSince(string bank, int clock)
+		{
+			var keep = new List<string>();
+			foreach (string p in (frozenSince ?? "").Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries))
+				if (!p.StartsWith(bank + "@", StringComparison.Ordinal)) keep.Add(p);
+			keep.Add(bank.Replace("|", "/").Replace("@", "-") + "@" + clock.ToString(CultureInfo.InvariantCulture));
+			frozenSince = string.Join("|", keep.ToArray());
+		}
+
+		// Forget accounts that are no longer frozen (unfrozen by the lawyer, or by us).
+		internal void KeepFrozen(HashSet<string> banks)
+		{
+			var keep = new List<string>();
+			foreach (string p in (frozenSince ?? "").Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries))
+			{
+				int at = p.LastIndexOf('@');
+				if (at > 0 && banks.Contains(p.Substring(0, at))) keep.Add(p);
+			}
+			string next = string.Join("|", keep.ToArray());
+			if (next != frozenSince) frozenSince = next;
+		}
+
 		public override void ResetSkill(string owner)
 		{
 			base.ResetSkill(owner);
-			scams = ""; letters = ""; sends = ""; bankMoved = 0f; perkUsedAt = -100000; lastCrimeAt = -100000; nextId = 1; mode = 1;
+			scams = ""; letters = ""; sends = ""; bankMoved = 0f; perkUsedAt = -100000; lastCrimeAt = -100000; nextId = 1; mode = 1; frozenSince = "";
 			list = null;
 		}
 	}

@@ -15,7 +15,7 @@ namespace ScamArtistMod
 	/// Scam Artist: a Fraud skill, and scam invoices that play out over days. The game's own scam listener
 	/// (FakeInvoiceReceiver, in every scene) still receives the mail; the mod replaces what happens next.
 	/// </summary>
-	[BepInPlugin("JuanBerta.Obenseuer.ScamArtist", "Scam Artist", "1.0.5")]
+	[BepInPlugin("JuanBerta.Obenseuer.ScamArtist", "Scam Artist", "1.0.6")]
 	public class ScamArtistPlugin : BaseUnityPlugin
 	{
 		internal static CustomSkill Skill;
@@ -48,6 +48,7 @@ namespace ScamArtistMod
 		internal static ConfigEntry<float> FreezeGrowthPer100Rm;
 		internal static ConfigEntry<bool> InstantLawyerUnfreeze;
 		internal static ConfigEntry<bool> PayIntoFrozenAccount;
+		internal static ConfigEntry<int> AutoUnfreezeDays;
 		internal static ConfigEntry<bool> LawyerPaidFromAccount;
 		internal static ConfigEntry<bool> LawyerAlwaysAnswers;
 		internal static ConfigEntry<bool> ConArtist;
@@ -104,6 +105,7 @@ namespace ScamArtistMod
 			InstantLawyerUnfreeze = cfg.Bind("Payout", "InstantLawyerUnfreeze", true, D("When you ask the lawyer to unfreeze a bank account, it's unfrozen right away instead of after the game's waiting time. You still get the lawyer's invoice.", 70));
 			LawyerAlwaysAnswers = cfg.Bind("Payout", "LawyerAlwaysAnswers", true, D("The lawyer (Samuel Godman, 030-112-112) always picks up. In the game every number only answers some of the time, so his line often seems busy.", 69));
 			LawyerPaidFromAccount = cfg.Bind("Payout", "LawyerPaidFromAccount", true, D("The lawyer's fee for unfreezing an account is taken from that account's balance, so you don't need the money on you. If the account can't cover it, you get the game's normal invoice.", 68));
+			AutoUnfreezeDays = cfg.Bind("Payout", "AutoUnfreezeDays", 7, D("A frozen bank account is unfrozen on its own after this many in-game days, when the bank closes its review. Works for any freeze. 0 = off (only the lawyer can unfreeze it).", 66, new AcceptableValueRange<int>(0, 60)));
 			PayIntoFrozenAccount = cfg.Bind("Payout", "PayIntoFrozenAccount", false, D("Scam payments still go into a frozen account (instead of bouncing). You can't take the money out until the account is unfrozen.", 65));
 			ConArtist = cfg.Bind("Perk", "ConArtist", true, D("Level 10 perk: once a week, a scam that would get you reported asks for more documentation instead.", 100));
 			ConArtistDays = cfg.Bind("Perk", "ConArtistDays", 7, D("In-game days between Con Artist saves.", 90, new AcceptableValueRange<int>(1, 30)));
@@ -332,9 +334,39 @@ namespace ScamArtistMod
 				else if (ledgerOpen && Input.GetKeyDown(KeyCode.Escape)) closeAtLateUpdate = true;   // keep blocking Esc this frame
 				if (Time.unscaledTime < nextTick) return;
 				nextTick = Time.unscaledTime + 2f;
-				if (SkillHost.InGame && Save != null && Time.timeScale > 0f) Process();
+				if (SkillHost.InGame && Save != null && Time.timeScale > 0f) { Process(); CheckFrozenAccounts(); }
 			}
 			catch (Exception e) { Logger.LogWarning("Scam Artist: " + e.Message); }
+		}
+
+		// ---- Frozen accounts unfreeze on their own ----
+
+		internal static int UnfreezeAt(string bank)
+		{
+			int since = Save != null ? Save.FrozenSince(bank) : int.MinValue;
+			return since == int.MinValue || AutoUnfreezeDays.Value <= 0 ? int.MinValue : since + AutoUnfreezeDays.Value * Day;
+		}
+
+		private static void CheckFrozenAccounts()
+		{
+			if (Money.instance == null || Money.instance.bankAccounts == null) return;
+			int now = Now;
+			var frozen = new HashSet<string>();
+			foreach (Money.BankAccountData acc in Money.instance.bankAccounts)
+			{
+				if (acc == null || string.IsNullOrEmpty(acc.Bankname)) continue;
+				if (!acc.Frozen) continue;
+				frozen.Add(acc.Bankname);
+				int since = Save.FrozenSince(acc.Bankname);
+				if (since == int.MinValue) { Save.SetFrozenSince(acc.Bankname, now); continue; }   // first seen frozen now
+				if (AutoUnfreezeDays.Value <= 0 || now - since < AutoUnfreezeDays.Value * Day) continue;
+				acc.Frozen = false;
+				frozen.Remove(acc.Bankname);
+				string text = "Our review of your account is closed. The account is unfrozen: you can deposit and withdraw again.";
+				Save.AddLetter(now, acc.Bankname, text);
+				SkillHost.Notify(acc.Bankname, "Your account is unfrozen: the bank closed its review.");
+			}
+			Save.KeepFrozen(frozen);
 		}
 
 		private static void Process()
@@ -481,7 +513,8 @@ namespace ScamArtistMod
 						if (frozenNote != null) MailController.instance.SendMail("Stalburg Bank - Suspicious activity detected", frozenNote, MailController.Target.Player);
 					}
 					catch (Exception) { }
-					SkillHost.Notify(s.Bank, "Suspicious activity detected: your account is frozen.");
+					if (Save != null) Save.SetFrozenSince(s.Bank, Now);
+					SkillHost.Notify(s.Bank, "Suspicious activity detected: your account is frozen." + (AutoUnfreezeDays.Value > 0 ? " The bank's review takes " + AutoUnfreezeDays.Value + " days, or ask a lawyer." : ""));
 				}
 			}
 			s.State = ScamState.Paid;
@@ -757,6 +790,18 @@ namespace ScamArtistMod
 			GUILayout.EndHorizontal();
 			GUILayout.Label("Small is safer and pays less, Greedy is riskier and pays much more.", sHint);
 			if (Save.lastCrimeAt >= now - Day) GUILayout.Label("<color=#e8c060>You committed a crime recently, so you're not laying low.</color>", sHint);
+			try
+			{
+				if (Money.instance != null && Money.instance.bankAccounts != null)
+					foreach (Money.BankAccountData acc in Money.instance.bankAccounts)
+					{
+						if (acc == null || !acc.Frozen) continue;
+						int at = UnfreezeAt(acc.Bankname);
+						string when = at == int.MinValue ? "until a lawyer unfreezes it" : "the bank's review ends in " + When(at - now);
+						GUILayout.Label("<color=#e8a060>Your " + acc.Bankname + " account is frozen: " + when + ".</color>", sHint);
+					}
+			}
+			catch (Exception) { }
 
 			var mail = MailInTransit();
 			var scams = Save.Scams();
